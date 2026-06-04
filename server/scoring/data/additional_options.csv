@@ -1,0 +1,10 @@
+id,en,ct,must_have,conflict
+41,Blessing of Heaven,天和,"48, 49","42, 43, 44, 45, 46, 47, 48"
+42,Blessing of Earth,地和,"48, 49","41, 43, 44, 45, 46, 47, 48"
+43,Bless of Eastern Wind,天聽,,"41, 42, 44"
+44,Declare Waiting Hand,報聽,,"41, 42, 43"
+45,Win After a Quad,槓上開花,49,"41, 42, 46"
+46,Robbing a Quad,搶槓和,,"41, 42, 45, 47, 49"
+47,Grab the Moon (Last Tile),海底撈月,,"41, 42, 46"
+48,Concealed Hand,門前清,,
+49,Self-drawn,自摸,,46

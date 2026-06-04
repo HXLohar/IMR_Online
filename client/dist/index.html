@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IMR Online — 創新麻將</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #1a3d1a;
+      color: #f0f0f0;
+      font-family: 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    #app { width: 100%; max-width: 1200px; padding: 12px; }
+    #status-bar {
+      background: #111;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-bottom: 10px;
+      min-height: 28px;
+    }
+    .board {
+      display: grid;
+      grid-template-rows: auto 1fr auto auto;
+      gap: 8px;
+    }
+    .opponent-row {
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .river-area {
+      display: flex;
+      gap: 2px;
+      flex-wrap: wrap;
+      align-content: flex-start;
+    }
+    .center-area {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .player-section {
+      background: rgba(0,0,0,0.3);
+      border-radius: 8px;
+      padding: 8px;
+    }
+    .section-label {
+      font-size: 11px;
+      color: #aaa;
+      margin-bottom: 4px;
+    }
+    .tile {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 38px;
+      height: 52px;
+      background: #fffaf0;
+      color: #111;
+      border: 1px solid #888;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: bold;
+      cursor: default;
+      user-select: none;
+      position: relative;
+      transition: transform 0.1s;
+    }
+    .tile.face-down { background: #4a6fa5; color: transparent; }
+    .tile.selected { transform: translateY(-8px); border-color: #ffd700; }
+    .tile.clickable { cursor: pointer; }
+    .tile.clickable:hover { transform: translateY(-4px); }
+    #hand-area {
+      display: flex;
+      gap: 3px;
+      flex-wrap: wrap;
+      justify-content: center;
+      min-height: 60px;
+    }
+    #controls {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 8px;
+    }
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      background: #2a6a2a;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: bold;
+      transition: background 0.15s;
+    }
+    button:hover:not(:disabled) { background: #3a8a3a; }
+    button:disabled { background: #555; cursor: not-allowed; opacity: 0.6; }
+    button.danger { background: #8a2a2a; }
+    button.danger:hover:not(:disabled) { background: #aa3a3a; }
+    button.highlight { background: #8a6a00; }
+    #result-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.75);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100;
+    }
+    #result-overlay.hidden { display: none; }
+    #result-box {
+      background: #1e1e1e;
+      border: 2px solid #4a9a4a;
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 500px;
+      width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    #result-box h2 { color: #ffd700; margin-bottom: 12px; }
+    .payment-row { display: flex; justify-content: space-between; margin: 4px 0; }
+    .payment-pos { color: #6f6; }
+    .payment-neg { color: #f66; }
+    #wall-counter {
+      font-size: 24px;
+      font-weight: bold;
+      text-align: center;
+    }
+    .calls-area {
+      display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px;
+    }
+    .call-group {
+      display: flex; gap: 1px;
+      background: rgba(255,255,255,0.1);
+      padding: 2px;
+      border-radius: 3px;
+    }
+    #log {
+      max-height: 120px;
+      overflow-y: auto;
+      font-size: 11px;
+      color: #aaa;
+      background: rgba(0,0,0,0.4);
+      border-radius: 6px;
+      padding: 6px;
+      margin-top: 8px;
+    }
+    #log div { border-bottom: 1px solid #333; padding: 2px 0; }
+    .riichi-badge {
+      font-size: 9px;
+      background: #ffd700;
+      color: #111;
+      padding: 1px 3px;
+      border-radius: 2px;
+      margin-left: 4px;
+    }
+  </style>
+  <script type="module" crossorigin src="/assets/index-UMtrMRTi.js"></script>
+</head>
+<body>
+  <div id="app">
+    <div id="status-bar">連接中…</div>
+    <div class="board" id="board">
+      <!-- Top opponents (seats 2, 3, 1 displayed top/right/left) -->
+      <div id="opp-top" class="player-section opponent-row">
+        <div class="section-label">對家 (Seat 2)</div>
+        <div class="river-area" id="river-2"></div>
+        <div class="calls-area" id="calls-2"></div>
+      </div>
+      <div class="center-area">
+        <div id="opp-left" class="player-section" style="flex:0 0 150px">
+          <div class="section-label">左家 (Seat 3)</div>
+          <div class="river-area" id="river-3"></div>
+          <div class="calls-area" id="calls-3"></div>
+        </div>
+        <div style="flex:1;text-align:center">
+          <div id="wall-counter">牌牆: --</div>
+          <div id="current-seat-label" style="font-size:12px;color:#aaa;margin-top:4px"></div>
+        </div>
+        <div id="opp-right" class="player-section" style="flex:0 0 150px">
+          <div class="section-label">右家 (Seat 1)</div>
+          <div class="river-area" id="river-1"></div>
+          <div class="calls-area" id="calls-1"></div>
+        </div>
+      </div>
+      <!-- Player area -->
+      <div class="player-section" id="player-area">
+        <div class="section-label">
+          你 (Seat 0)
+          <span class="riichi-badge" id="riichi-badge" style="display:none">报听</span>
+        </div>
+        <div class="calls-area" id="calls-0"></div>
+        <div class="river-area" id="river-0" style="margin-bottom:8px"></div>
+        <div id="hand-area"></div>
+        <div id="controls"></div>
+      </div>
+    </div>
+    <div id="log"></div>
+  </div>
+  <div id="result-overlay" class="hidden">
+    <div id="result-box">
+      <h2 id="result-title">結算</h2>
+      <div id="result-body"></div>
+      <button id="btn-new-game" style="margin-top:16px">新局</button>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,51 @@
+string_id,en,ct
+10,Tiles,牌張
+11,Manual input,手動輸入
+12,Reset,重設
+20,Add Straight/Triplet/Quad Call ,添加(吃/碰/槓)
+21,Add Concealed Quad,添加(暗槓)
+22,Add Winning Tile,添加(和牌牌張)
+23,Add to hand,添加到手牌
+30,(Hand),(手牌)
+40,Additional Options,額外選項
+41,Blessing of Heaven,天和
+42,Blessing of Earth,地和
+43,Bless of Eastern Wind,天聽
+44,Declare Waiting Hand,報聽
+45,Win After a Quad,槓上開花
+46,Robbing a Quad,搶槓和
+47,Grab the Moon (Last Tile),海底撈月
+48,Concealed Hand,門前清
+49,Self-drawn,自摸
+60,Calculate Scoring,計算得分
+61,Calculate Outs,計算聽牌
+62,Input hand to calculate…,輸入手牌來計算得分…
+63,Total points,總分
+100,b,條
+101,d,餅
+102,c,萬
+103,E,東風
+104,S,南風
+105,W,西風
+106,N,北風
+107,R,紅中
+108,G,發財
+109,Wh,白板
+110,Selected tiles is not valid call,選擇的牌張無法形成吃/碰/槓
+111,Selected tiles is not valid concealed quad,選擇的牌張無法形成暗槓
+112,This will cause too many tiles,這會導致大相公
+113,Cannot have more calls,無法進行更多吃/碰/槓
+114,Cannot select more than 1 Winning Tile,只能選擇1張牌作為和牌牌張
+120,Unexpected Error,未知錯誤
+121,Invalid Hand,手牌不是成牌
+122,Invalid Additional Options,額外選項錯誤
+200,Outs,聽牌
+201,Tile(s),枚
+202,Drawing Dead,聽死牌
+210,Win by self-drawn,自摸
+211,Win by discard,點和
+212,Average Win,平均 和出後得分
+213,Min pts needed for a win,起和分數要求
+214,Other,其他
+215,Bypass requirement for Concealed Hand Self Drawn,門前清 + 自摸 可不受限製
+216,Invalid Win,錯和

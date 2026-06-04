@@ -1,0 +1,81 @@
+id,is_excellence,override,value,name_e,name_c,hand_format,desc_e,desc_c,examples
+101,TRUE,102,10000,SUPREME NINE GATES,純正九蓮寶燈,,"Winning hand consists of 1112345678999 of the same suit, and all tiles of that suit are valid waits. Always score as if win by self drawn, even if win from other's discard.","和牌手牌為同花色的1112345678999, 聽該花色所有牌. 即使點和, 也按照自摸和牌計分, 其他家分付.",1112345678999c + 6c
+102,TRUE,201,3000,NINE GATES,九蓮寶燈,,"Winning hand being 1112345678999X of the same suit, where X is any tile of that suit. However being not a 9-sided wait.","和牌手牌為同花色的1112345678999X, 但並非9面聽牌.",1111234578999d + 6d
+103,TRUE,"306, 308",12000,QUADRUPLE STRAIGHTS,一色四同順,SSSSp,"Winning hand consists of 4 straights, all being the same suit and numbers.","和牌手牌包含4個順子, 且其花色和序數都相同.",[123b][123b]11223b77d + 3b
+104,TRUE,"109, 404",7000,GRAND SEVEN STARS,大七星,seven_pairs,Winning hand being Seven Pairs that's made of all 7 types of honor tiles.,"和牌手牌為七對, 且由七個不同的字牌對子組成.",EESWWNNRRGGWhWh + S
+105,TRUE,"201, 404",5500,SEVEN CONSECUTIVE PAIRS,連七對,seven_pairs,"Winning hand consists of Seven Pairs of the same suit, and being 7 consecutive numbers.","和牌手牌為七對, 且由同花的7個序數相連的對子組成.",2233445667788d + 5d
+106,TRUE,251,6000,FOUR QUADS,四槓,TTTTp,Winning hand contains 4 Quads of any kind.,和牌手牌有4個槓.,[1111c][2222c][7777d][RRRR*] 5b + 5b
+107,TRUE,108,6000,MAJOR FOUR WINDS,大四喜,TTTTp,Winning hand contains triplets of all 4 winds.,和牌手牌包含所有4個風刻.,[EEE][SSSS][WWW]4d NNN + 4d
+108,TRUE,255,4000,MINOR FOUR WINDS,小四喜,TTT?p,"Winning hand contains triplet of 3 winds, and using the 4th type of wind as the pair.","和牌手牌包含3個風刻, 且以第四種風做將.",[EEE][SSSS][WWW]44d NN + 4d
+109,TRUE,"205, 255",3000,ALL HONORS,字一色,"TTTTp, seven_pairs","Winning hand being [All Triplets] of any variant of [Seven Pair], and consists of only Honor tiles.","和牌手牌為[碰碰和]或任意類型的[七對], 且僅包含字牌. 不加計[碰碰和], 但可加計[七對]類番種.",[EEE][NNN][GGG]WhWhSS + S
+110,TRUE,259,3000,MAJOR THREE DRAGONS,大三元,TTT?p,Winning hand contains triplets of all 3 dragons.,和牌手牌包含所有3個三元刻.,[RRR][GGGG*]WhWhWh 33b 55d + 5d
+111,TRUE,411,5000,BLESSING OF HEAVEN,天和,,"Dealer win with initial dealt 14 tiles. If [NINE GATES] or [THIRTEEN ORPHANS] occur, counts as [SUPREME NINE GATES]  or [ALL WAITS THIRTEEN ORPHANS] instead.","莊家拿到的14張牌直接和牌. 如果為[九蓮寶燈]或[十三幺], 按[純正九蓮寶燈]或[十三幺(十三面聽)]計.",22334b555cGGGWhWh + 4b* +BOH
+112,TRUE,411,5000,BLESSING OF EARTH,地和,,Non-Dealer win on first tile drawn. Calls from other players prior to it won't cause this Fan to be unachieveable.,閒家第一次摸牌後和牌. 在此之前其他家的吃碰槓不會導致此番種無法達成.,22334b555cGGGWhWh + 4b* +BOE
+113,TRUE,201,5000,ALL GREEN,綠一色,,Winning hand contains only 23468b and G.,"和牌手牌僅包含23468條, 以及發財.",[234b][234b][GGGG*]6668b + 8b
+114,TRUE,"262, 401",5000,ALL TERMINALS,清幺九,"TTTTp, seven_pairs","Winning hand being [All Triplets] of any variant of [Seven Pair], and consists of only Terminal tiles. Overrides [All Triplets], but can be scored along with Fan involving [Seven Pairs].","和牌手牌為[碰碰和]或任意類型的[七對], 且僅包含序數幺久牌. 不加計[碰碰和], 但可加計[七對]類番種.",[111b][111c][111d] 99b 999c 99d + 9d*
+115,TRUE,"116, 201",5000,EXTENDED PURE FOUR CONSECUTIVE TRIPLETS,一色小五節高,TTTTp,Winning hand being [FOUR CONSECUTIVE TRIPLETS] and the pair of the same suit with the number right next to those triplets.,"和牌手牌為[一色四節高], 且以同花色的一對與該四節高相鄰的牌做將.",[4444b][666b]5557778b + 8b*
+116,TRUE,264,4000,FOUR CONSECUTIVE TRIPLETS,一色四節高,TTTTp,"Winning hand contains 4 triplets of the same suit, each being 1 higher than the previous one.","和牌手牌包含4個同花色的刻, 且每一個比之前的序數遞增1.",[4444b][666b]555777b2c + 2c
+117,TRUE,,3000,FOUR CONSECUTIVE STRAIGHTS,一色四步高,SSSSp,"Winning hand contains 4 straight of the same suit, each being 1 higher than the previous one.","和牌手牌包含4個同花色的順子, 且每一個比之前的序數遞增1.",[234b][567b]344556b 8d + 8d
+118,TRUE,"262, 401",4000,TWO CONSECUTIVE NUMBERS.,二連序數,"TTTTp, seven_pairs","Winning hand being [All Triplets] of any variant of [Seven Pair], and consists of only two consecutive numbers. Overrides [All Triplets], but can be scored along with Fan involving [Seven Pairs].","和牌手牌為[碰碰和]或任意類型的[七對], 且僅包含兩個相連的序數. 不加計[碰碰和], 但可加計[七對]類番種.",[555c][555d]66b666c66d + 6b
+119,TRUE,308,4000,PURE DRAGON PARTY,一色雙龍會,SSSSp,"Winning hand being [Double Twin Straight] being 123 and 789 of the same suit, along with a pair of 5 also from that suit.","和牌手牌為同花色的123, 789組成的[兩般高], 加上該花色的一對5做將.",[123c]1235778899c + 5c
+120,TRUE,308,3000,TWIN STRAIGHT DRAGON PARTY,兩般雙龍會,SSSSp,"Winning hand being [Double Twin Straight] made of 123 from one suit, 789 from another suit, along with a pair of 5 from the third suit.","和牌手牌為一個花色的123, 另一個花色的789組成的[兩般高], 加上第三個花色的一對5做將.",[789b]789b12233c55d + 1c*
+121,TRUE,122,3500,ALL WAITS THIRTEEN ORPHANS,十三幺(十三面聽),thirteen_orphans,"Winning hang is Thirteen Orphans with all 13-side waits. Cannot win from other's discard if at least one terminal/honor tile was discarded during this game. Always score as if win by self drawn, even if win from other's discard.","和牌手牌為十三幺, 且13面聽牌. 若本盤曾打出任何幺久牌, 則只可以自摸和牌. 即使點和, 也按照自摸和牌計分, 其他家分付.",19b 19c 19d ESWNRGWh + 9d*
+122,TRUE,,3000,THIRTEEN ORPHANS,十三幺,thirteen_orphans,"Winning hand being a pair of terminal/honor tile, plus one of each other terminal/honor tiles.","和牌手牌為一對幺久/字牌, 加上其他每種幺久/字牌各一張",19b 19c 19d ESWNRRWh + G
+123,TRUE,402,4000,TRIPLE PREMIUM SEVEN PAIRS,三豪華七對,seven_pairs,"Winning hand being [Seven Pairs] that contains 3x ""Four of a kind"".",和牌手牌為[七對]且包含3組四張一樣的牌.,22223333b 66888d + 8d
+124,TRUE,254,3000,FOUR CONCEALED TRIPLETS,四暗刻,TTTTp,"Winning hand being [All Triplets], and all 4 triplets are concealed (drawn by yourself).","和牌手牌為[碰碰和], 且所有刻均為暗刻 (自己摸到)",[7777c*] 2255b 999d NNN + 5b*
+201,FALSE,202,1000,Pure Flush,清一色,,Winning hang consists of only a single suit.,和牌手牌僅包含一種花色.,[123b][333b][567b]7799b + 9b*
+202,FALSE,,200,Mixed Flush,混一色,,Winning hang consists of only a single suit and honor tiles.,和牌手牌僅包含一種花色以及字牌.,[123b][333b][567b]77b GG + G*
+203,FALSE,204,700,Pure Outside Hand,清全帶幺,S???p,"All 4 groups of Winning hand involves a terminal tile, with a pair of terminal tiles.","和牌手牌的四副均包含序數幺久牌, 且以一對序數幺久牌做將.",[123b]11189c789999d + 7c
+204,FALSE,,300,Mixed Outside Hand,混全帶幺,S???p,"All 4 groups of Winning hand involves a terminal tile or honor, with a pair of terminal or honor tiles.","和牌手牌的四副均包含幺久牌, 且以一對幺久牌做將.",[123b]11189c789d EEE + 7c
+205,FALSE,"204, 257, 261, 401",1400,All Terminals and Honors,混幺久,"TTTTp, seven_pairs","Winning hand being [All Triplets] of any variant of [Seven Pair], and consists of only terminal or honor tiles. Overrides [All Triplets], but can be scored along with Fan involving [Seven Pairs].","和牌手牌為[碰碰和]或任意類型的[七對], 且僅包含幺久牌. 不加計[碰碰和], 但可加計[七對]類番種.",[111b][999d][SSS]NNWW + W*
+206,FALSE,"213, 215",1200,5 in All Groups,全帶五,SS??p,"All 4 groups of Winning hand involves 5, with a pair of 5.","和牌手牌的四副均包含5, 且以一對5做將.",[345b][345c][456d]55b55d + 5d
+207,FALSE,,1000,3 in All Groups,全帶三,SS??p,"All 4 groups of Winning hand involves 3, with a pair of 3.","和牌手牌的四副均包含3, 且以一對3做將.",[123b][123c][345d]33b33d +3d
+208,FALSE,214,1000,4 in All Groups,全帶四,SS??p,"All 4 groups of Winning hand involves 4, with a pair of 4.","和牌手牌的四副均包含4, 且以一對4做將.",[456b][234b]2344b444c + 4b
+209,FALSE,214,1000,6 in All Groups,全帶六,SS??p,"All 4 groups of Winning hand involves 6, with a pair of 6.","和牌手牌的四副均包含6, 且以一對5做將.",[666b][666c][678d]4666d + 5d
+210,FALSE,,1000,7 in all groups,全帶七,SS??p,"All 4 groups of Winning hand involves 7, with a pair of 7.","和牌手牌的四副均包含7, 且以一對6做將.",[567c][789c]77b77c678d + 7b
+211,FALSE,"216, 401",1200,Even Tiles,全雙,"TTTTp, seven_pairs","Winning hand being [All Triplets] of any variant of [Seven Pair], and consists of only 2, 4, 6, 8.","和牌手牌為[碰碰和]或任意類型的[七對], 且僅包含2, 4, 6, 8. 不加計[碰碰和], 但可加計[七對]類番種.",[222b][666b][888b]4466c+6c
+212,FALSE,401,900,Odd Tiles,全單,"TTTTp, seven_pairs","Winning hand being [All Triplets] of any variant of [Seven Pair], and consists of only 1, 3, 5, 7, 9.","和牌手牌為[碰碰和]或任意類型的[七對], 且僅包含1, 3, 5, 7, 9. 不加計[碰碰和], 但可加計[七對]類番種.",[111b][555b][777c]3399c+9c
+213,FALSE,214,700,Three consecutive numbers,三連序數,,Winning hand contains only 3 consecutive numbers.,和牌手牌僅包含三個相連序數.,[111b][333b]11c12333d + 1c
+214,FALSE,,300,Four consecutive numbers,四連序數,,Winning hand contains only 4 consecutive numbers.,和牌手牌僅包含四個相連序數.,[111b][444b]11c12333d + 1c
+215,FALSE,216,200,Simpler Hand,雙斷幺,,Winning hand only contains 3-7.,和牌手牌僅包含3-7.,[456c][567c]3335777b+6b
+216,FALSE,,100,Simple Hand,斷幺,,"Winning hand contains no terminal and honor tiles. In other words, it only contains 208.","和牌手牌不包含幺久牌, 即僅包含2-8.",[234c][567c]3335777b+6b
+217,FALSE,,600,Reversible Tiles,推不倒,,"Winning hands only contains tiles that are rotationally symmetric: 245689b, 1234589d, and Wh.","和牌手牌僅包含旋轉後牌面圖形沒有區別的牌組成: 245689條, 1234589餅, 以及白板.",[456b][222b][999d]88d WhWh + 8d*
+218,FALSE,,100,All Five Types,五門齊,"T???p, seven_pairs","Winning hands include Bamboo, Character, Dots, Wind, and Dragon.","和牌手牌包含條, 萬, 餅, 風, 以及三元牌.",[333b]678c99d EE GGG + 9d
+251,FALSE,252,2000,Three Quads,三槓,TTT?p,Winning hand contains 3 Quads.,和牌手牌有3個槓.,[2222c][6666c][6666d]234b W + W
+252,FALSE,253,500,Two Quads,二槓,TT??p,Winning hand contains 2 Quads.,和牌手牌有2個槓.,[2222c][6666c][777d]234b W + W
+253,FALSE,,100,One Quad,一槓,T???p,Winning hand contains 1 Quad.,和牌手牌有1個槓.,[2222c][666d]233445b W + W
+254,FALSE,,700,Three concealed triplets.,三暗刻,TTT?p,Winning hand contains 3 concealed triplets (drawn by yourself).,"和牌手牌為[碰碰和], 且所有刻均為暗刻 (自己摸到)",[777c] 2255b 999d NNN + 5b*
+255,FALSE,256,1400,Three Wind Triplets,三風刻,TTT?p,Winning hand contains 3 Wind triplets.,和牌手牌有3個風刻.,[EEE][SSS]WW 234b 22c + W*
+256,FALSE,257,500,Minor Three Winds,小三風,TT??p,"Winning hand contains 2 Wind triplets, and a pair of Wind tiles.","和牌手牌有2個風刻, 且以一對風牌做將.",[EEE][SSS]WW 234b 22c + 2c
+257,FALSE,258,200,Two Wind Triplets,雙風刻,TT??p,Winning hand contains 2 Wind triplets.,和牌手牌有2個風刻.,[EEE][SSS]234567b 22c 77d + 2c
+258,FALSE,,50,Wind Triplet,風刻,T???p,Winning hand contains 1 Wind triplet.,和牌手牌有1個風刻.,[EEE][111b]234567b 22c 77d + 2c
+259,FALSE,260,1200,Minor Three Dragons,小三元,TT??p,"Winning hand contains 2 Dragon triplets, and a pair of Dragon tiles.","和牌手牌有2個三元刻, 且以一對三元牌做將.",[WhWhWh]RRGG 333c 678d + G
+260,FALSE,261,300,Two Dragon Triplets,雙箭刻,TT??p,Winning hand contains 2 Dragon triplets.,和牌手牌有2個三元刻.,[WhWhWh]RRR 3339c 678d + 9c
+261,FALSE,,100,Dragon Triplet,箭刻,T???p,Winning hand contains 1 Dragon triplet.,和牌手牌有1個三元刻.,[WhWhWh]234b 3339c 678d + 9c
+262,FALSE,263,1200,Triple Triplets,三同刻,TTT?p,Winning hand contains 3 triplets of different suits with the same number.,和牌手牌有3個序數相同的刻.,[888d]888b 1134588c + 8c
+263,FALSE,,300,Minor Triple Triplets,小三同刻,TT??p,"Winning hand contains 2 triplets of different suits with the same number, and a pair of the same number from the third suit.","和牌手牌有2個序數相同的刻, 以及用一對該序數牌做將.",[888d]888b 1134588c + 1c
+264,FALSE,,900,Three Consecutive Triplets,一色三節高,TTT?p,"Winning hand contains 3 triplets of the same suit, each being 1 number higher than the previous one.","和牌手牌有3個花色相同, 序數遞增1的刻.",[222b][333b]444b789c R + R
+265,FALSE,,600,Mixed Three Consecutive Triplets,三色三節高,TTT?p,"Winning hand contains 3 triplets of different suits, each being 1 number higher than the previous one.","和牌手牌有3個花色互不相同, 序數遞增1的刻.",[222b][333d]444789c R + R
+301,FALSE,406,1400,Mixed Dragon Party,三色雙龍會,SSSSp,"Winning hand being two groups of 123 and 789 from different suits, along with a pair of 5 from the third suit.","和牌手牌為兩組不同花色的123, 789, 加上第三個花色的一對5做將.",[789b]789c123b23c55d + 1c*
+302,FALSE,,2000,Four Chained Straights,一色四連環,SSSSp,"Winning hand contains 4 straight of the same suit, each being 2 higher than the previous one.","和牌手牌包含4個同花色的順子, 且每一個比之前的序數遞增2.",[345b][789b]12357b 88d + 6b
+303,FALSE,,500,Three Consecutive Straights,一色三步高,SSS?p,"Winning hand contains 3 straight of the same suit, each being 1 higher than the previous one.","和牌手牌包含3個同花色的順子, 且每一個比之前的序數遞增1.",[123d][345d]123b2388d + 4d
+304,FALSE,,300,Dragon Straight,清龍,SSS?p,"Winning hand contains 123, 456, 789 of the same suit.","和牌手牌包含同花色的123, 456, 789三個順子.",[123b][789b]456b22c RR + 2c
+305,FALSE,,300,Mixed Dragon Straight,花龍,SSS?p,"Winning hand contains 123, 456, 789 of 3 different suits","和牌手牌包含不同花色的123, 456, 789三個順子.",[123b][789d]22456cc RR + 2c
+306,FALSE,,1600,Triple Straights,一色三同順,SSS?p,Winning hand contains three straights of same suit and have same number.,和牌手牌包含三個花色和點數都相同的順子.,[678c][678c]123b6789c + 9c
+307,FALSE,309,300,Mixed Triple Straights,三色三同順,SSS?p,Winning hand contains three straights of different suits with the same number.,"和牌手牌包含三個花色不相同, 點數相同的順子.",[234b][234d]2345678c + 5c*
+308,FALSE,"309, 405",1000,Double Twin Straights,兩般高,SSSSp,Winning hand contains two [Twin Straight]. Overrides [Twin Straight].,和牌手牌有兩個[一般高]. 不再加計[一般高].,[123d]5566779c123d + 9c*
+309,FALSE,,100,Twin Straights,一般高,SS??p,Winning hand contains two straight of the same suit and number.,和牌手牌包含兩副花色和序數都一樣的順子.,[123d]4556679c123d + 9c*
+401,FALSE,405,300,All Triplets,碰碰和,TTTTp,All 4 groups in the winning hand are Triplets.,和牌手牌包含4副刻/槓.,[111b][333d]222666c R + R
+402,FALSE,403,1600,Double Premium Seven Pairs,雙豪華七對,seven_pairs,"Winning hand being [Seven Pairs] that contains 2x ""Four of a kind"".",和牌手牌為[七對]且包含2組四張一樣的牌.,22226666899c22d + 8c
+403,FALSE,404,800,Premium Seven Pairs,豪華七對,seven_pairs,"Winning hand being [Seven Pairs] that contains 1x ""Four of a kind"".",和牌手牌為[七對]且包含1組四張一樣的牌.,22226677899c22d + 8c
+404,FALSE,"405, 410",500,Seven Pairs,七對,seven_pairs,"Winning hand being [Seven Pairs] that contains 3x ""Four of a kind"".",和牌手牌為七個不同的對子.,22556677899c22d + 8c
+405,FALSE,,200,Pairs or Better,成雙成對,????p,All tiles in the winning hand appeared more than once.,"和牌手牌中, 任意一枚牌都出現了兩次或以上.",[234c][234c]NNNWhWhGG + G
+406,FALSE,,300,Mirrored Tiles,鏡同,"SSSSp, TTSSp, TTTTp","Winning hand contains 4 groups from 2 suits, 2 groups for each suit. And for every group in one suit, there's a group in the other suit with same type (Straight/Triplet) and numbers.","和牌手牌的4副由兩個花色各2副組成, 且其序數/類型(刻/槓)互相對應. 不得為[七對]類型.",[234b][8888b*]234c8899c + 8c
+407,FALSE,,500,Win After a Quad,槓上開花,T???p,"Win after declaring a Quad, and there's no redraw between the quad and the win.","開槓後, 自摸和牌, 且中間沒有任何重摸.",[1111d*][333d]778899c Wh + Wh* + AQ
+408,FALSE,,500,Robbing a Quad,搶槓和,S???p,"Win when another player is upgrading a triplet to a quad, and you can win with that tile.","別家補槓時, 自家聽該張牌, 並搶槓和牌.",[1111d*][333d]778899c WhWh + 6c + RQ
+409,FALSE,501,500,Grab the Moon,海底撈月,,"Win on the final turn, where the entire tile wall was drawn. Can be win by self drawn, or from other's discard.",在牌墻抓完的回合和牌. 自摸/點和均可.,[1111d*][333d]778899c WhWh + 6c + LT
+410,FALSE,,100,Concealed Hand,門前清,,"Win without any calls, or all calls being concealed quad.","和牌時, 沒有暗槓之外的吃碰槓.",111b 333555c 23456d + 1d
+411,FALSE,"412, 410",500,Bless of Eastern Wind,天聽,,Declare Waiting after first discard (Dealer) or upon initial hand dealt (Non-Dealer). Quads are allowed as long as the waiting tiles are unchanged after the Quad. (This include Quads that will break [Concealed Hand]),"莊家打出第一張牌後, 或閒家配牌後直接報聽. 之後可以在不換聽的情況下開槓, 即使開槓後不再門前清.",111b 333555c 23456d + 1d + BoE
+412,FALSE,,100,Declare Waiting Hand,報聽,,Declare Waiting when achieved a Waiting hand while being [Concealed Hand]. Quads are allowed as long as the waiting tiles are unchanged after the Quad. (This include Quads that will break [Concealed Hand]),"門前清聽牌後, 可以報聽. 之後可以在不換聽的情況下開槓, 即使開槓後不再門前清.",111b 333555c 23456d + 1d + DW
+413,FALSE,,150,Four Calls,四鳴牌單釣,????p,Win after 4 calls. Both Win by Self-Drawn and Win from Discard are allowed.,"吃碰槓一共4次後, 和牌. 點和/自摸均可.",[234b][345d][666d][789d]9d + 9d*
+501,FALSE,,50,Self-drawn,自摸,,Win by self-drawn,自摸和牌.,[123c][444d]56789c NN + 4c*
