@@ -1,5 +1,5 @@
 """
-Tile wall: shuffle, deal, draw, kong supplement.
+Tile wall: shuffle, deal, draw, quad supplement.
 Step 1 has no dora indicators — the wall is simply 136 tiles.
 """
 import random
@@ -14,7 +14,7 @@ class Wall:
         tiles = ALL_TILES * 4
         self._rng.shuffle(tiles)
         self._tiles: list[Tile] = tiles
-        # Dead wall: last 14 tiles (for kong supplements)
+        # Dead wall: last 14 tiles (for quad supplements)
         # For Step 1, just track a draw pointer and supplement pointer.
         self._draw_ptr = 0
         self._supp_ptr = FULL_WALL_SIZE - 1  # supplements drawn from the end
@@ -32,7 +32,7 @@ class Wall:
         return t
 
     def draw_supplement(self) -> Tile | None:
-        """Draw a supplement tile from the dead-wall end (after kong)."""
+        """Draw a supplement tile from the dead-wall end after a quad."""
         if self._draw_ptr > self._supp_ptr:
             return None
         t = self._tiles[self._supp_ptr]

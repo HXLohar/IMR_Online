@@ -4,7 +4,7 @@ from scoring.api import WinFlags
 from game.legal import (
     can_chow, can_pong, can_open_kong, can_concealed_kong,
     can_added_kong, can_win_on_discard, legal_claims,
-    chow_pong_limit,
+    can_add_chow_pong, can_add_pass, chow_pong_limit,
 )
 from game.redraw import is_redraw_eligible
 from game.tiles import tile_from_str as T, tiles_from_str as tiles
@@ -15,13 +15,21 @@ from game.tiles import tile_from_str as T, tiles_from_str as tiles
 # ---------------------------------------------------------------------------
 
 def test_limit_no_pass():
-    assert chow_pong_limit(0) is None
+    assert chow_pong_limit(0) == 4
 
 def test_limit_one_pass():
     assert chow_pong_limit(1) == 2
 
 def test_limit_two_passes():
     assert chow_pong_limit(2) == 1
+
+def test_total_pass_call_limit():
+    assert can_add_chow_pong(0, 3)
+    assert not can_add_chow_pong(0, 4)
+    assert can_add_chow_pong(2, 0)
+    assert not can_add_chow_pong(2, 1)
+    assert not can_add_chow_pong(1, 2)
+    assert not can_add_pass(0, 3)
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +199,19 @@ class TestLegalClaims:
         assert not claims['kong']
         assert not claims['win']
         assert claims['skip']
+
+    def test_riichi_blocks_chow_and_pong(self):
+        claims = legal_claims(
+            hand=tiles('1123c456b789d1b2b'),
+            calls=[],
+            discard=T('1c'),
+            from_seat=3, my_seat=0, num_players=4,
+            pass_count=0, chow_pong_count=0,
+            win_flags=WinFlags(),
+            is_riichi=True,
+        )
+        assert claims['chow'] == []
+        assert not claims['pong']
 
 
 # ---------------------------------------------------------------------------

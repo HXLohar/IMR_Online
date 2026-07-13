@@ -1,0 +1,7 @@
+client/node_modules/
+client/dist/
+client/.vite/
+server/**/__pycache__/
+server/.pytest_cache/
+server/*.egg-info/
+*.pyc

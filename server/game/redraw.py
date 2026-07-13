@@ -11,7 +11,7 @@ A player may redraw on a just-drawn tile if ANY of these conditions hold:
      - Non-honor tile: ≥ 2 times in their own river.
 
   3. The drawn tile is the same as the LAST tile in the player's own river
-     (face-up discard only; tiles claimed by pong/chow don't count as "in river").
+     (face-up discard only; tiles claimed by triplet/straight calls don't count as "in river").
 """
 from __future__ import annotations
 from collections import Counter

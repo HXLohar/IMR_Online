@@ -36,9 +36,9 @@
       flex-wrap: wrap;
     }
     .river-area {
-      display: flex;
+      display: grid;
+      grid-template-columns: repeat(8, 24px);
       gap: 2px;
-      flex-wrap: wrap;
       align-content: flex-start;
     }
     .center-area {
@@ -64,17 +64,37 @@
       width: 38px;
       height: 52px;
       background: #fffaf0;
-      color: #111;
       border: 1px solid #888;
       border-radius: 4px;
-      font-size: 11px;
-      font-weight: bold;
       cursor: default;
       user-select: none;
       position: relative;
       transition: transform 0.1s;
+      overflow: hidden;
     }
-    .tile.face-down { background: #4a6fa5; color: transparent; }
+    .tile img {
+      width: 100%;
+      height: 100%;
+      object-fit: fill;
+      display: block;
+      pointer-events: none;
+    }
+    .tile.face-down { background: #4a6fa5; }
+    .small-tile { width: 24px; height: 33px; }
+    .drawn-tile { margin-left: 10px; }
+    .called-badge {
+      position: absolute;
+      top: 1px;
+      right: 1px;
+      font-size: 8px;
+      font-weight: bold;
+      color: #fff;
+      background: #cc0000;
+      border-radius: 2px;
+      padding: 0 2px;
+      line-height: 1.4;
+      pointer-events: none;
+    }
     .tile.selected { transform: translateY(-8px); border-color: #ffd700; }
     .tile.clickable { cursor: pointer; }
     .tile.clickable:hover { transform: translateY(-4px); }
@@ -128,6 +148,7 @@
     #result-box h2 { color: #ffd700; margin-bottom: 12px; }
     .payment-row { display: flex; justify-content: space-between; margin: 4px 0; }
     .payment-pos { color: #6f6; }
+    .payment-zero { color: #f0f0f0; }
     .payment-neg { color: #f66; }
     #wall-counter {
       font-size: 24px;
@@ -138,11 +159,30 @@
       display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px;
     }
     .call-group {
-      display: flex; gap: 1px;
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
       background: rgba(255,255,255,0.1);
       padding: 2px;
       border-radius: 3px;
     }
+    .call-tiles { display: flex; gap: 1px; }
+    .call-group.open-call { border: 2px solid #4aa3ff; }
+    .call-group.concealed-call { border: 2px solid #a45cff; }
+    .call-source { font-size: 10px; color: #cfe8ff; line-height: 1; }
+    #log-container { margin-top: 8px; }
+    #log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    #log-header span { font-size: 11px; color: #888; }
+    #btn-export-log {
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: normal;
+      background: #2a4a6a;
+    }
+    #btn-export-log:hover { background: #3a6a9a; }
     #log {
       max-height: 120px;
       overflow-y: auto;
@@ -151,10 +191,9 @@
       background: rgba(0,0,0,0.4);
       border-radius: 6px;
       padding: 6px;
-      margin-top: 8px;
     }
     #log div { border-bottom: 1px solid #333; padding: 2px 0; }
-    .riichi-badge {
+    .declare-wait-badge {
       font-size: 9px;
       background: #ffd700;
       color: #111;
@@ -163,7 +202,7 @@
       margin-left: 4px;
     }
   </style>
-  <script type="module" crossorigin src="/assets/index-UMtrMRTi.js"></script>
+  <script type="module" crossorigin src="/assets/index-YREvJx2P.js"></script>
 </head>
 <body>
   <div id="app">
@@ -176,7 +215,7 @@
         <div class="calls-area" id="calls-2"></div>
       </div>
       <div class="center-area">
-        <div id="opp-left" class="player-section" style="flex:0 0 150px">
+        <div id="opp-left" class="player-section" style="flex:0 0 220px">
           <div class="section-label">左家 (Seat 3)</div>
           <div class="river-area" id="river-3"></div>
           <div class="calls-area" id="calls-3"></div>
@@ -185,7 +224,7 @@
           <div id="wall-counter">牌牆: --</div>
           <div id="current-seat-label" style="font-size:12px;color:#aaa;margin-top:4px"></div>
         </div>
-        <div id="opp-right" class="player-section" style="flex:0 0 150px">
+        <div id="opp-right" class="player-section" style="flex:0 0 220px">
           <div class="section-label">右家 (Seat 1)</div>
           <div class="river-area" id="river-1"></div>
           <div class="calls-area" id="calls-1"></div>
@@ -195,7 +234,7 @@
       <div class="player-section" id="player-area">
         <div class="section-label">
           你 (Seat 0)
-          <span class="riichi-badge" id="riichi-badge" style="display:none">报听</span>
+          <span class="declare-wait-badge" id="declare-wait-badge" style="display:none">报听</span>
         </div>
         <div class="calls-area" id="calls-0"></div>
         <div class="river-area" id="river-0" style="margin-bottom:8px"></div>
@@ -203,7 +242,13 @@
         <div id="controls"></div>
       </div>
     </div>
-    <div id="log"></div>
+    <div id="log-container">
+      <div id="log-header">
+        <span>Log</span>
+        <button id="btn-export-log">Export Log (.log)</button>
+      </div>
+      <div id="log"></div>
+    </div>
   </div>
   <div id="result-overlay" class="hidden">
     <div id="result-box">

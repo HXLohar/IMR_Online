@@ -8,7 +8,8 @@ export interface OtherPlayer {
   calls: string[]
   river: (string | null)[]     // null = face-down
   pass_count: number
-  is_riichi: boolean
+  straightTripletCount: number
+  hasDeclaredWait: boolean
 }
 
 export interface GameStore {
@@ -21,7 +22,9 @@ export interface GameStore {
   hand: string[]
   calls: string[]
   river: (string | null)[]
-  is_riichi: boolean
+  pass_count: number
+  straightTripletCount: number
+  hasDeclaredWait: boolean
 
   // Others (indexed by seat)
   others: Record<number, OtherPlayer>
@@ -32,6 +35,7 @@ export interface GameStore {
   // Turn options
   myTurnOptions: string[]
   drawnTile: string | null
+  quickDiscardEnabled: boolean
 
   // Claim window
   claimOptions: string[]
@@ -40,6 +44,9 @@ export interface GameStore {
 
   // Result
   lastResult: unknown | null
+
+  // river tile indices (per seat) that were claimed by another player
+  calledRiverTiles: Record<number, number[]>
 }
 
 export const store: GameStore = {
@@ -50,16 +57,20 @@ export const store: GameStore = {
   hand: [],
   calls: [],
   river: [],
-  is_riichi: false,
+  pass_count: 0,
+  straightTripletCount: 0,
+  hasDeclaredWait: false,
   others: {},
   wallCount: 0,
   currentSeat: 0,
   myTurnOptions: [],
   drawnTile: null,
+  quickDiscardEnabled: true,
   claimOptions: [],
   claimTile: null,
   claimFromSeat: null,
   lastResult: null,
+  calledRiverTiles: {},
 }
 
 export function updateStore(partial: Partial<GameStore>): void {

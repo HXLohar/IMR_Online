@@ -18,5 +18,5 @@ class Bot(ABC):
     def decide_claim(self, view: dict, options: list[str]) -> dict:
         """
         Called during a claim window.
-        Must return {'claim': 'skip'|'pong'|'kong'|'chow'|'win', ...}.
+        Must return {'claim': 'skip'|'triplet_call'|'direct_quad_call'|'straight_call'|'win', ...}.
         """

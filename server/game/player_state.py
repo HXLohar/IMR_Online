@@ -17,8 +17,8 @@ class PlayerState:
     river_face_down: list[bool] = field(default_factory=list)  # parallel: True = rang_guo
 
     pass_count: int = 0        # number of rang_guo (face-down discards)
-    chow_pong_count: int = 0   # chow + pong calls (kong excluded)
-    is_riichi: bool = False    # has declared ready (报听)
+    straight_triplet_count: int = 0   # straight + triplet calls (quad excluded)
+    has_declared_wait: bool = False
     is_ready: bool = False     # game-start ready
 
     score: int = 0             # running total across hands (not yet used in Step 1)
@@ -33,10 +33,30 @@ class PlayerState:
         if face_down:
             self.pass_count += 1
 
-    def add_call(self, call: Call, is_pong_or_chow: bool = True) -> None:
+    @property
+    def chow_pong_count(self) -> int:
+        """Legacy alias for straight_triplet_count."""
+        return self.straight_triplet_count
+
+    @chow_pong_count.setter
+    def chow_pong_count(self, value: int) -> None:
+        self.straight_triplet_count = value
+
+    @property
+    def is_riichi(self) -> bool:
+        """Legacy alias for has_declared_wait."""
+        return self.has_declared_wait
+
+    @is_riichi.setter
+    def is_riichi(self, value: bool) -> None:
+        self.has_declared_wait = value
+
+    def add_call(self, call: Call, is_straight_or_triplet: bool = True, **legacy: bool) -> None:
         self.calls.append(call)
-        if is_pong_or_chow:
-            self.chow_pong_count += 1
+        if "is_pong_or_chow" in legacy:
+            is_straight_or_triplet = legacy["is_pong_or_chow"]
+        if is_straight_or_triplet:
+            self.straight_triplet_count += 1
 
     def all_visible_discards(self) -> list[Tile]:
         """Return only face-up discards (for redraw condition checks)."""
@@ -57,5 +77,5 @@ class PlayerState:
         self.river.clear()
         self.river_face_down.clear()
         self.pass_count = 0
-        self.chow_pong_count = 0
-        self.is_riichi = False
+        self.straight_triplet_count = 0
+        self.has_declared_wait = False

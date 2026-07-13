@@ -8,15 +8,15 @@ from typing import Callable, Awaitable
 
 from game.player_state import PlayerState
 from game.fsm import GameState
-from bots.discard_only_bot import DiscardOnlyBot
 from bots.auto_call_bot import AutoCallBot
+from bots.efficiency_bot import EfficiencyBot
 
 
 def _make_players() -> list[PlayerState]:
     """Create 4 seats: seat 0 = human, seats 1-3 = bots."""
     ps = [PlayerState(seat=0, name='Guest', is_bot=False)]
 
-    bot_types = [AutoCallBot(), DiscardOnlyBot(), DiscardOnlyBot()]
+    bot_types = [EfficiencyBot(), EfficiencyBot(), AutoCallBot()]
     bot_names = ['Bot-A', 'Bot-B', 'Bot-C']
 
     for i, (bot, name) in enumerate(zip(bot_types, bot_names), start=1):

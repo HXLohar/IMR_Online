@@ -28,13 +28,13 @@ class DiscardMsg(BaseModel):
 
 class ClaimMsg(BaseModel):
     type: Literal['claim'] = 'claim'
-    claim: str                     # 'chow' | 'pong' | 'kong' | 'win' | 'skip'
-    tiles: list[str] = Field(default_factory=list)  # for chow: tiles used from hand
+    claim: str                     # 'straight_call' | 'triplet_call' | 'direct_quad_call' | 'win' | 'skip'
+    tiles: list[str] = Field(default_factory=list)  # for straight_call: tiles used from hand
 
 
 class SelfActionMsg(BaseModel):
     type: Literal['self_action'] = 'self_action'
-    action: str    # 'tsumo'|'concealed_kong'|'added_kong'|'redraw'|'declare_ready'
+    action: str    # 'tsumo'|'concealed_quad_declare'|'upgraded_quad_declare'|'redraw'|'declare_wait'
     tile: Optional[str] = None
 
 

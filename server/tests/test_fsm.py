@@ -1,7 +1,9 @@
 """Tests for game/fsm.py — focuses on resolve_claims (pure function)."""
+import asyncio
 import pytest
-from game.fsm import resolve_claims, ClaimResolution
-from game.tiles import tile_from_str as T
+from game.fsm import FSMState, GameState, resolve_claims, ClaimResolution
+from game.player_state import PlayerState
+from game.tiles import tile_from_str as T, tiles_from_str as tiles
 
 
 def mkdiscard(tile_str: str = '5c'):
@@ -16,9 +18,9 @@ class TestResolveClaims:
     def test_win_beats_all(self):
         discard = mkdiscard('5c')
         claims = {
-            1: {'claim': 'pong'},
+            1: {'claim': 'triplet_call'},
             2: {'claim': 'win'},
-            3: {'claim': 'chow'},
+            3: {'claim': 'straight_call'},
         }
         res = resolve_claims(discard, from_seat=0, claims=claims)
         assert 2 in res.winners
@@ -37,33 +39,33 @@ class TestResolveClaims:
     def test_pong_beats_chow(self):
         discard = mkdiscard('5c')
         claims = {
-            1: {'claim': 'chow'},
-            2: {'claim': 'pong'},
+            1: {'claim': 'straight_call'},
+            2: {'claim': 'triplet_call'},
             3: {'claim': 'skip'},
         }
         res = resolve_claims(discard, from_seat=0, claims=claims)
         assert res.call_seat == 2
-        assert res.call_action['claim'] == 'pong'
+        assert res.call_action['claim'] == 'triplet_call'
         assert res.winners == []
 
     def test_kong_beats_pong(self):
         discard = mkdiscard('5c')
         claims = {
-            1: {'claim': 'pong'},
-            2: {'claim': 'kong'},
+            1: {'claim': 'triplet_call'},
+            2: {'claim': 'direct_quad_call'},
             3: {'claim': 'skip'},
         }
         res = resolve_claims(discard, from_seat=0, claims=claims)
         assert res.call_seat == 2
-        assert res.call_action['claim'] == 'kong'
+        assert res.call_action['claim'] == 'direct_quad_call'
 
     def test_tie_break_closer_seat(self):
         # from_seat=0; seats 2 and 3 both pong → seat 1 (dist 1) wins if present
         # seats 2 (dist 2) and 3 (dist 3) both claim pong → seat 2 wins (closer)
         discard = mkdiscard('5c')
         claims = {
-            2: {'claim': 'pong'},
-            3: {'claim': 'pong'},
+            2: {'claim': 'triplet_call'},
+            3: {'claim': 'triplet_call'},
         }
         res = resolve_claims(discard, from_seat=0, claims=claims)
         assert res.call_seat == 2
@@ -130,3 +132,140 @@ class TestSettle:
         # Seat 1 should have negative payment if they're not tenpai
         # We can't know for sure without running waits, but can check structure
         assert isinstance(result.payments[0], int)
+
+
+class SkipBot:
+    def decide_claim(self, view, options):
+        return {'claim': 'skip'}
+
+
+class FakeWall:
+    def __init__(self, draw_tiles):
+        self.draw_tiles = list(draw_tiles)
+
+    def draw(self):
+        return self.draw_tiles.pop(0) if self.draw_tiles else None
+
+    def draw_supplement(self):
+        return self.draw()
+
+    def remaining(self):
+        return len(self.draw_tiles)
+
+
+def test_redraw_discards_opens_claims_then_draws_for_same_player():
+    events = []
+
+    async def send(seat, msg):
+        events.append(('send', seat, msg))
+
+    async def broadcast(msg):
+        events.append(('broadcast', msg))
+
+    players = [PlayerState(seat=0, name='Human')]
+    for seat in (1, 2, 3):
+        p = PlayerState(seat=seat, name=f'Bot-{seat}', is_bot=True)
+        p.hand = tiles('123b456c789d1122c')
+        p._bot = SkipBot()
+        players.append(p)
+
+    game = GameState(players, send, broadcast)
+    game.state = FSMState.PLAYER_TURN
+    game.current_seat = 0
+    game.wall = FakeWall([T('9b')])
+    players[0].hand = tiles('123b456c789d1122cE')
+
+    asyncio.run(game._do_redraw(0, T('E')))
+
+    assert len(players[0].hand) == 14
+    assert T('E') not in players[0].hand
+    assert players[0].river[-1] == T('E')
+    assert players[0].hand[-1] == T('9b')
+    assert game.current_seat == 0
+    assert ('broadcast', {
+        'type': 'discarded', 'seat': 0, 'tile': 'E', 'face_down': False,
+        'pass_count': 0, 'straight_triplet_count': 0,
+    }) in events
+    assert ('broadcast', {'type': 'redraw', 'seat': 0}) in events
+
+
+def test_face_down_discard_rejected_when_pass_call_total_is_three():
+    events = []
+
+    async def send(seat, msg):
+        events.append(('send', seat, msg))
+
+    async def broadcast(msg):
+        events.append(('broadcast', msg))
+
+    p = PlayerState(seat=0, name='Human')
+    p.hand = tiles('123b456c789d1122c')
+    p.pass_count = 2
+    p.straight_triplet_count = 1
+    game = GameState([p], send, broadcast)
+    game.state = FSMState.PLAYER_TURN
+    game.current_seat = 0
+
+    asyncio.run(game._do_discard(0, T('1b'), face_down=True))
+
+    assert T('1b') in p.hand
+    assert p.pass_count == 2
+    assert events == [('send', 0, {'type': 'error', 'message': 'Pass/call limit reached'})]
+
+
+def test_no_claim_window_when_only_skip_is_legal():
+    events = []
+
+    async def send(seat, msg):
+        events.append(('send', seat, msg))
+
+    async def broadcast(msg):
+        events.append(('broadcast', msg))
+
+    players = []
+    for seat in range(4):
+        p = PlayerState(seat=seat, name=f'P{seat}')
+        p.hand = tiles('234b456b789d45cES')
+        players.append(p)
+
+    game = GameState(players, send, broadcast)
+    game.wall = FakeWall([T('9b')])
+
+    asyncio.run(game._begin_await_claims(from_seat=1, tile=T('1c')))
+
+    assert not any(e[0] == 'send' and e[2].get('type') == 'claim_window' for e in events)
+    assert game.current_seat == 2
+
+
+def test_non_downstream_straight_call_claim_is_sanitized_to_skip():
+    async def send(seat, msg):
+        pass
+
+    async def broadcast(msg):
+        pass
+
+    players = []
+    for seat in range(4):
+        p = PlayerState(seat=seat, name=f'P{seat}')
+        p.hand = tiles('23c456b789d45cES')
+        players.append(p)
+
+    game = GameState(players, send, broadcast)
+    game.state = FSMState.AWAIT_CLAIMS
+    game.wall = FakeWall([])
+    game._pending_discard = T('1c')
+    game._pending_from_seat = 1  # downstream is seat 2, not seat 0
+
+    asyncio.run(game.handle_claim(0, {'claim': 'straight_call', 'tiles': ['1c', '2c', '3c']}))
+
+    assert game._claims[0] == {'claim': 'skip'}
+
+
+def test_declare_wait_option_when_discard_leaves_tenpai():
+    p = PlayerState(seat=0, name='Human')
+    p.hand = tiles('123b456b789b12c11d9d')
+    game = GameState([p])
+    game.wall = FakeWall([T('1b')])
+
+    assert game._can_declare_wait(p)
+    assert 'declare_wait' in game._compute_turn_options(p, T('9d'))

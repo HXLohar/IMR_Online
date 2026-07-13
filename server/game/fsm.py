@@ -21,13 +21,44 @@ from game.tiles import Tile, tile_to_str
 from game.wall import Wall
 from game.player_state import PlayerState
 from game.legal import (
-    can_chow, can_pong, can_open_kong, can_added_kong,
-    can_concealed_kong, can_win_on_discard, can_win_self_drawn, legal_claims,
+    can_straight_call, can_triplet_call, can_direct_quad_call,
+    can_upgraded_quad_declare, can_concealed_quad_declare,
+    can_win_on_discard, can_win_self_drawn,
+    can_add_straight_triplet_call, can_add_pass, legal_claims,
 )
 from game.redraw import is_redraw_eligible
 from game.settle import settle_wins, settle_exhaustive_draw
 from scoring.parsing import Call, CallType
 from scoring.api import WinFlags, waits
+
+STRAIGHT_CALL = 'straight_call'
+TRIPLET_CALL = 'triplet_call'
+DIRECT_QUAD_CALL = 'direct_quad_call'
+UPGRADED_QUAD_DECLARE = 'upgraded_quad_declare'
+CONCEALED_QUAD_DECLARE = 'concealed_quad_declare'
+DECLARE_WAIT = 'declare_wait'
+
+# Keep these narrow aliases so stale clients/tests fail soft while the protocol
+# emits the IMR terms above.
+LEGACY_CLAIMS = {
+    'chow': STRAIGHT_CALL,
+    'pong': TRIPLET_CALL,
+    'kong': DIRECT_QUAD_CALL,
+}
+
+LEGACY_ACTIONS = {
+    'added_kong': UPGRADED_QUAD_DECLARE,
+    'concealed_kong': CONCEALED_QUAD_DECLARE,
+    'declare_ready': DECLARE_WAIT,
+}
+
+
+def _claim_name(claim: str) -> str:
+    return LEGACY_CLAIMS.get(claim, claim)
+
+
+def _action_name(action: str) -> str:
+    return LEGACY_ACTIONS.get(action, action)
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +83,7 @@ class FSMState(Enum):
 @dataclass
 class ClaimResolution:
     winners: list[int]    # seats declaring win (多响)
-    call_seat: int | None # seat making chow/pong/kong (None if no call)
+    call_seat: int | None # seat making straight/triplet/quad call (None if no call)
     call_action: dict | None
 
 
@@ -64,7 +95,7 @@ def resolve_claims(
 ) -> ClaimResolution:
     """
     Resolve competing claims according to IMR priority:
-      win > pong/kong > chow
+      win > direct quad call > triplet call > straight call
     Ties in same priority → smallest circular distance from from_seat (next seat wins).
     Multi-win (一炮多響): ALL win claims succeed simultaneously.
     """
@@ -72,16 +103,15 @@ def resolve_claims(
     if winners:
         return ClaimResolution(winners=winners, call_seat=None, call_action=None)
 
-    # Kong > pong > chow
     def priority(claim: str) -> int:
-        return {'kong': 3, 'pong': 2, 'chow': 1}.get(claim, 0)
+        return {DIRECT_QUAD_CALL: 3, TRIPLET_CALL: 2, STRAIGHT_CALL: 1}.get(_claim_name(claim), 0)
 
     best_prio = 0
     best_seat: int | None = None
     best_action: dict | None = None
 
     for seat, action in claims.items():
-        claim = action.get('claim', 'skip')
+        claim = _claim_name(action.get('claim', 'skip'))
         p = priority(claim)
         if p == 0:
             continue
@@ -129,9 +159,11 @@ class GameState:
         self._pending_from_seat: int = 0
         self._claims: dict[int, dict] = {}     # seat -> claim action
         self._claims_received: int = 0
+        self._no_claim_next_seat: int | None = None
+        self._no_claim_quad_draw_seat: int | None = None
 
-        # Kong supplement tracking
-        self._kong_supplement_seat: int = 0
+        # Quad supplement tracking
+        self._quad_supplement_seat: int = 0
 
     # ------------------------------------------------------------------
     # Entry points
@@ -156,6 +188,7 @@ class GameState:
         if self.state != FSMState.AWAIT_CLAIMS:
             return
         if seat not in self._claims:
+            claim_action = self._sanitize_claim(seat, claim_action)
             self._claims[seat] = claim_action
             self._claims_received += 1
             if self._claims_received == self.num_players - 1:
@@ -175,6 +208,8 @@ class GameState:
         hands = self.wall.deal(self.num_players)
         for i, p in enumerate(self.players):
             p.hand = list(hands[i])
+            if p.is_bot:
+                await self._debug_log(f"{p.name} opening hand: {''.join(tile_to_str(t) for t in p.hand)}")
 
         await self.broadcast({
             'type': 'game_start',
@@ -222,13 +257,18 @@ class GameState:
             'drawn': tile_to_str(tile),
             'options': options,
             'redraw_eligible': 'redraw' in options,
+            'pass_count': p.pass_count,
+            'straight_triplet_count': p.straight_triplet_count,
         })
 
         # Bots act immediately
         if p.is_bot:
             from bots.base import Bot
             bot: Bot = p._bot  # type: ignore
-            action = bot.decide_turn(self._build_view(seat))
+            view = self._build_view(seat)
+            view['options'] = options
+            action = bot.decide_turn(view)
+            await self._debug_log(f"{p.name} turn hand={view['hand']} options={options} action={action}")
             await self.handle_player_action(seat, action)
 
     def _compute_turn_options(self, p: PlayerState, drawn_tile: Tile) -> list[str]:
@@ -239,13 +279,15 @@ class GameState:
         if can_win_self_drawn(p.hand[:-1], p.calls, drawn_tile, flags):
             options.append('tsumo')
 
-        # Concealed kong
-        if can_concealed_kong(p.hand[:-1], drawn_tile):
-            options.append('concealed_kong')
+        # Concealed quad declare
+        concealed_quads = can_concealed_quad_declare(p.hand[:-1], drawn_tile)
+        if concealed_quads and (not p.has_declared_wait or any(self._self_quad_keeps_wait(p, t, False) for t in concealed_quads)):
+            options.append(CONCEALED_QUAD_DECLARE)
 
-        # Added kong
-        if can_added_kong(p.hand[:-1], p.calls, drawn_tile):
-            options.append('added_kong')
+        # Upgraded quad declare
+        upgraded_quads = can_upgraded_quad_declare(p.hand[:-1], p.calls, drawn_tile)
+        if upgraded_quads and (not p.has_declared_wait or any(self._self_quad_keeps_wait(p, t, True) for t in upgraded_quads)):
+            options.append(UPGRADED_QUAD_DECLARE)
 
         # Redraw
         all_vis = self._all_visible_tiles()
@@ -257,16 +299,16 @@ class GameState:
         ):
             options.append('redraw')
 
-        # Declare ready (报听) — only concealed hands
-        if not p.is_riichi and self._is_concealed(p) and not p.is_riichi:
-            if waits(p.hand, p.calls):
-                options.append('declare_ready')
+        # Declare wait (报听) — only concealed hands
+        if not p.has_declared_wait and self._is_concealed(p):
+            if self._can_declare_wait(p):
+                options.append(DECLARE_WAIT)
 
         return options
 
     async def _process_turn_action(self, seat: int, action: dict) -> None:
         p = self.players[seat]
-        act = action.get('action') or action.get('type')
+        act = _action_name(action.get('action') or action.get('type'))
 
         if act == 'discard':
             tile_str = action.get('tile')
@@ -285,13 +327,16 @@ class GameState:
                 return
             await self._do_tsumo(seat, tile)
 
-        elif act in ('concealed_kong', 'added_kong'):
+        elif act in (CONCEALED_QUAD_DECLARE, UPGRADED_QUAD_DECLARE):
             tile_str = action.get('tile')
             tile = next((t for t in p.hand if tile_to_str(t) == tile_str), None)
             if tile is None:
                 await self.send(seat, {'type': 'error', 'message': f'Tile {tile_str} not in hand'})
                 return
-            await self._do_self_kong(seat, tile, is_added=(act == 'added_kong'))
+            if p.has_declared_wait and not self._self_quad_keeps_wait(p, tile, is_added=(act == UPGRADED_QUAD_DECLARE)):
+                await self.send(seat, {'type': 'error', 'message': 'Quad would break declared-wait hand'})
+                return
+            await self._do_self_quad(seat, tile, is_added=(act == UPGRADED_QUAD_DECLARE))
 
         elif act == 'redraw':
             tile = p.hand[-1]
@@ -302,13 +347,19 @@ class GameState:
                 return
             await self._do_redraw(seat, tile)
 
-        elif act == 'declare_ready':
-            if not self._is_concealed(p):
-                await self.send(seat, {'type': 'error', 'message': 'Cannot declare ready with open calls'})
+        elif act == DECLARE_WAIT:
+            if not self._is_concealed(p) or not self._can_declare_wait(p):
+                await self.send(seat, {'type': 'error', 'message': 'Cannot declare wait'})
                 return
-            p.is_riichi = True
-            await self.broadcast({'type': 'ready_declared', 'seat': seat})
-            # Fall through to discard (player still needs to discard after declaring ready)
+            p.has_declared_wait = True
+            await self.broadcast({'type': 'wait_declared', 'seat': seat})
+            if p.is_bot:
+                from bots.base import Bot
+                bot: Bot = p._bot  # type: ignore
+                action = bot.decide_turn(self._build_view(seat))
+                await self._debug_log(f"{p.name} after declare_wait action={action}")
+                await self.handle_player_action(seat, action)
+            # Fall through to discard (player still needs to discard after declaring wait)
             # The client will prompt for a discard next
 
         else:
@@ -323,8 +374,8 @@ class GameState:
 
         # Validate rang_guo legality
         if face_down:
-            if p.pass_count >= 2:
-                await self.send(seat, {'type': 'error', 'message': 'Already rang_guo twice'})
+            if not can_add_pass(p.pass_count, p.straight_triplet_count):
+                await self.send(seat, {'type': 'error', 'message': 'Pass/call limit reached'})
                 return
 
         p.discard(tile, face_down)
@@ -334,6 +385,8 @@ class GameState:
             'seat': seat,
             'tile': tile_to_str(tile) if not face_down else None,
             'face_down': face_down,
+            'pass_count': p.pass_count,
+            'straight_triplet_count': p.straight_triplet_count,
         })
 
         if face_down:
@@ -349,13 +402,20 @@ class GameState:
     # Claims window
     # ------------------------------------------------------------------
 
-    async def _begin_await_claims(self, from_seat: int, tile: Tile) -> None:
+    async def _begin_await_claims(
+        self,
+        from_seat: int,
+        tile: Tile,
+        no_claim_next_seat: int | None = None,
+    ) -> None:
         self.state = FSMState.AWAIT_CLAIMS
         self._pending_discard = tile
         self._pending_discard_face_down = False
         self._pending_from_seat = from_seat
         self._claims = {}
         self._claims_received = 0
+        self._no_claim_next_seat = no_claim_next_seat
+        self._no_claim_quad_draw_seat = None
 
         # Notify each other player of their options
         bot_claims: list[tuple[int, dict]] = []
@@ -373,29 +433,37 @@ class GameState:
                 my_seat=s,
                 num_players=self.num_players,
                 pass_count=p.pass_count,
-                chow_pong_count=p.chow_pong_count,
+                straight_triplet_count=p.straight_triplet_count,
                 win_flags=flags,
                 face_down=False,
+                has_declared_wait=p.has_declared_wait,
             )
 
             # Build option list for the client
             options = []
             if claims['win']:
                 options.append('win')
-            if claims['pong']:
-                options.append('pong')
-            if claims['kong']:
-                options.append('kong')
-            for chow_call in claims['chow']:
-                options.append('chow')
+            if claims['triplet_call']:
+                options.append(TRIPLET_CALL)
+            if claims['direct_quad_call']:
+                options.append(DIRECT_QUAD_CALL)
+            for straight_call in claims['straight_call']:
+                options.append(STRAIGHT_CALL)
                 break  # client picks which tiles; signal availability
             options.append('skip')
+
+            if options == ['skip']:
+                self._claims[s] = {'claim': 'skip'}
+                self._claims_received += 1
+                continue
 
             await self.send(s, {
                 'type': 'claim_window',
                 'tile': tile_to_str(tile),
                 'from_seat': from_seat,
                 'your_options': options,
+                'pass_count': p.pass_count,
+                'straight_triplet_count': p.straight_triplet_count,
                 'deadline_ms': 5000,
             })
 
@@ -403,11 +471,15 @@ class GameState:
                 from bots.base import Bot
                 bot: Bot = p._bot  # type: ignore
                 bot_action = bot.decide_claim(self._build_view(s), options)
+                await self._debug_log(f"{p.name} claim tile={tile_to_str(tile)} options={options} action={bot_action}")
                 bot_claims.append((s, bot_action))
 
         # Bots respond immediately
         for s, action in bot_claims:
             await self.handle_claim(s, action)
+
+        if self.state == FSMState.AWAIT_CLAIMS and self._claims_received == self.num_players - 1:
+            await self._resolve_claims_phase()
 
         # If all non-discarder seats are bots, claims may already be resolved
         # (handled inside handle_claim). If there's a human player still
@@ -426,9 +498,8 @@ class GameState:
             await self._do_call(resolution.call_seat, resolution.call_action, tile, from_seat)
             return
 
-        # No claims: next player draws
-        self.current_seat = (from_seat + 1) % self.num_players
-        await self._begin_player_turn(self.current_seat)
+        # No claims: normal discard passes to next seat; redraw returns to discarder.
+        await self._continue_after_no_claim()
 
     # ------------------------------------------------------------------
     # Win
@@ -439,14 +510,14 @@ class GameState:
         flags = WinFlags(
             self_drawn=True,
             last_tile=(self.wall.remaining() == 0),
-            riichi=p.is_riichi,
+            declared_wait=p.has_declared_wait,
         )
         result = settle_wins(
             winners_data=[(seat, tile, 'tsumo', -1)],
             player_hands={s: self.players[s].hand[:-1] for s in range(self.num_players)},
             player_calls={s: self.players[s].calls for s in range(self.num_players)},
             player_pass_count={s: self.players[s].pass_count for s in range(self.num_players)},
-            player_riichi={s: self.players[s].is_riichi for s in range(self.num_players)},
+            player_declared_wait={s: self.players[s].has_declared_wait for s in range(self.num_players)},
             flags_extra={seat: flags},
         )
         if not result.winners:
@@ -461,84 +532,95 @@ class GameState:
             flags = WinFlags(
                 self_drawn=False,
                 last_tile=(self.wall.remaining() == 0),
-                riichi=p.is_riichi,
-                robbing_kong=False,  # standard ron
+                declared_wait=p.has_declared_wait,
+                robbing_quad=False,  # standard ron
             )
             winners_data.append((ws, tile, 'ron', from_seat))
 
         all_flags = {}
         for ws in winner_seats:
             p = self.players[ws]
-            all_flags[ws] = WinFlags(self_drawn=False, riichi=p.is_riichi)
+            all_flags[ws] = WinFlags(self_drawn=False, declared_wait=p.has_declared_wait)
 
         result = settle_wins(
             winners_data=winners_data,
             player_hands={s: self.players[s].hand for s in range(self.num_players)},
             player_calls={s: self.players[s].calls for s in range(self.num_players)},
             player_pass_count={s: self.players[s].pass_count for s in range(self.num_players)},
-            player_riichi={s: self.players[s].is_riichi for s in range(self.num_players)},
+            player_declared_wait={s: self.players[s].has_declared_wait for s in range(self.num_players)},
             flags_extra=all_flags,
         )
         if not result.winners:
             # All claims failed threshold; no claim succeeds
-            self.current_seat = (from_seat + 1) % self.num_players
-            await self._begin_player_turn(self.current_seat)
+            await self._continue_after_no_claim()
             return
         await self._end_hand(result)
 
     # ------------------------------------------------------------------
-    # Calls (pong/chow/kong)
+    # Calls (straight/triplet/direct quad)
     # ------------------------------------------------------------------
 
     async def _do_call(self, seat: int, action: dict, tile: Tile, from_seat: int) -> None:
         p = self.players[seat]
-        claim = action.get('claim')
+        claim = _claim_name(action.get('claim'))
 
-        if claim == 'pong':
+        if claim == TRIPLET_CALL:
+            if not can_add_straight_triplet_call(p.pass_count, p.straight_triplet_count):
+                await self.send(seat, {'type': 'error', 'message': 'Pass/call limit reached'})
+                return
             p.hand.remove(tile)
             p.hand.remove(tile)
             call = Call(CallType.TRIPLET, [tile, tile, tile])
-            p.add_call(call, is_pong_or_chow=True)
+            p.add_call(call, is_straight_or_triplet=True)
             await self.broadcast({
-                'type': 'call_made', 'seat': seat, 'call': 'pong',
+                'type': 'call_made', 'seat': seat, 'call': TRIPLET_CALL,
                 'tiles': [tile_to_str(tile)] * 3, 'from_seat': from_seat,
+                'pass_count': p.pass_count, 'straight_triplet_count': p.straight_triplet_count,
             })
 
-        elif claim == 'kong':
+        elif claim == DIRECT_QUAD_CALL:
+            if p.has_declared_wait and not self._direct_quad_keeps_wait(p, tile):
+                await self.send(seat, {'type': 'error', 'message': 'Quad would break declared-wait hand'})
+                return
             for _ in range(3):
                 p.hand.remove(tile)
             call = Call(CallType.QUAD, [tile] * 4)
-            p.add_call(call, is_pong_or_chow=False)  # kong doesn't count
+            p.add_call(call, is_straight_or_triplet=False)
             await self.broadcast({
-                'type': 'call_made', 'seat': seat, 'call': 'kong',
+                'type': 'call_made', 'seat': seat, 'call': DIRECT_QUAD_CALL,
                 'tiles': [tile_to_str(tile)] * 4, 'from_seat': from_seat,
+                'pass_count': p.pass_count, 'straight_triplet_count': p.straight_triplet_count,
             })
-            await self._begin_kong_draw(seat)
+            await self._begin_quad_draw(seat)
             return
 
-        elif claim == 'chow':
-            # Find the specific chow call
+        elif claim == STRAIGHT_CALL:
+            if not can_add_straight_triplet_call(p.pass_count, p.straight_triplet_count):
+                await self.send(seat, {'type': 'error', 'message': 'Pass/call limit reached'})
+                return
+            # Find the specific straight call
             chosen_tiles = action.get('tiles', [])
-            chow_hand_tiles = [t for t in p.hand if tile_to_str(t) in chosen_tiles]
-            if len(chow_hand_tiles) < 2:
-                # Fallback: pick first valid chow
-                options = can_chow(p.hand, tile, p.pass_count, p.chow_pong_count)
+            straight_hand_tiles = [t for t in p.hand if tile_to_str(t) in chosen_tiles]
+            if len(straight_hand_tiles) < 2:
+                # Fallback: pick first valid straight call
+                options = can_straight_call(p.hand, tile, p.pass_count, p.straight_triplet_count)
                 if not options:
-                    await self.send(seat, {'type': 'error', 'message': 'Invalid chow'})
+                    await self.send(seat, {'type': 'error', 'message': 'Invalid straight call'})
                     return
-                chow_call = options[0]
-                chow_hand_tiles = [t for t in chow_call.tiles if t != tile]
-            for t in chow_hand_tiles[:2]:
+                straight_call = options[0]
+                straight_hand_tiles = [t for t in straight_call.tiles if t != tile]
+            for t in straight_hand_tiles[:2]:
                 p.hand.remove(t)
-            chow_tiles_full = sorted([tile] + chow_hand_tiles[:2])
-            call = Call(CallType.STRAIGHT, chow_tiles_full)
-            p.add_call(call, is_pong_or_chow=True)
+            straight_tiles_full = sorted([tile] + straight_hand_tiles[:2])
+            call = Call(CallType.STRAIGHT, straight_tiles_full)
+            p.add_call(call, is_straight_or_triplet=True)
             await self.broadcast({
-                'type': 'call_made', 'seat': seat, 'call': 'chow',
-                'tiles': [tile_to_str(t) for t in chow_tiles_full], 'from_seat': from_seat,
+                'type': 'call_made', 'seat': seat, 'call': STRAIGHT_CALL,
+                'tiles': [tile_to_str(t) for t in straight_tiles_full], 'from_seat': from_seat,
+                'pass_count': p.pass_count, 'straight_triplet_count': p.straight_triplet_count,
             })
 
-        # After pong/chow: player must discard
+        # After triplet/straight call: player must discard
         self.current_seat = seat
         self.state = FSMState.PLAYER_TURN
         options = ['discard']
@@ -548,19 +630,24 @@ class GameState:
             'drawn': None,
             'options': options,
             'redraw_eligible': False,
+            'pass_count': p.pass_count,
+            'straight_triplet_count': p.straight_triplet_count,
         })
 
         if p.is_bot:
             from bots.base import Bot
             bot: Bot = p._bot  # type: ignore
-            discard_action = bot.decide_turn(self._build_view(seat))
+            view = self._build_view(seat)
+            view['options'] = options
+            discard_action = bot.decide_turn(view)
+            await self._debug_log(f"{p.name} after call hand={view['hand']} options={options} action={discard_action}")
             await self.handle_player_action(seat, discard_action)
 
     # ------------------------------------------------------------------
-    # Self-kong
+    # Self quad declare
     # ------------------------------------------------------------------
 
-    async def _do_self_kong(self, seat: int, tile: Tile, is_added: bool) -> None:
+    async def _do_self_quad(self, seat: int, tile: Tile, is_added: bool) -> None:
         p = self.players[seat]
 
         if is_added:
@@ -571,44 +658,47 @@ class GameState:
                     p.calls[i] = Call(CallType.QUAD, [tile] * 4)
                     break
         else:
-            # Concealed kong
+            # Concealed quad declare
             for _ in range(4):
                 p.hand.remove(tile)
             p.calls.append(Call(CallType.CONCEALED_QUAD, [tile] * 4))
 
         await self.broadcast({
             'type': 'call_made', 'seat': seat,
-            'call': 'added_kong' if is_added else 'concealed_kong',
+            'call': UPGRADED_QUAD_DECLARE if is_added else CONCEALED_QUAD_DECLARE,
             'tiles': [tile_to_str(tile)] * 4, 'from_seat': seat,
+            'pass_count': p.pass_count, 'straight_triplet_count': p.straight_triplet_count,
         })
 
-        # For added kong, other players may rob the kong (搶槓)
+        # For an upgraded quad declare, other players may rob the quad.
         if is_added:
-            await self._begin_kong_rob_window(seat, tile)
+            await self._begin_quad_rob_window(seat, tile)
         else:
-            await self._begin_kong_draw(seat)
+            await self._begin_quad_draw(seat)
 
-    async def _begin_kong_rob_window(self, kong_seat: int, tile: Tile) -> None:
-        """Allow others to rob the added kong (搶槓 win)."""
+    async def _begin_quad_rob_window(self, quad_seat: int, tile: Tile) -> None:
+        """Allow others to rob an upgraded quad declare (搶槓 win)."""
         self.state = FSMState.AWAIT_CLAIMS
         self._pending_discard = tile
-        self._pending_from_seat = kong_seat
+        self._pending_from_seat = quad_seat
         self._claims = {}
         self._claims_received = 0
+        self._no_claim_next_seat = None
+        self._no_claim_quad_draw_seat = quad_seat
 
         bot_claims = []
         for s in range(self.num_players):
-            if s == kong_seat:
+            if s == quad_seat:
                 continue
             p = self.players[s]
-            flags = WinFlags(robbing_kong=True)
+            flags = WinFlags(robbing_quad=True)
             can_win = can_win_on_discard(p.hand, p.calls, tile, flags)
             options = ['win'] if can_win else ['skip']
 
             await self.send(s, {
                 'type': 'claim_window',
                 'tile': tile_to_str(tile),
-                'from_seat': kong_seat,
+                'from_seat': quad_seat,
                 'your_options': options,
                 'deadline_ms': 3000,
             })
@@ -616,18 +706,20 @@ class GameState:
             if p.is_bot:
                 from bots.base import Bot
                 bot: Bot = p._bot  # type: ignore
-                bot_claims.append((s, bot.decide_claim(self._build_view(s), options)))
+                bot_action = bot.decide_claim(self._build_view(s), options)
+                await self._debug_log(f"{p.name} rob-quad tile={tile_to_str(tile)} options={options} action={bot_action}")
+                bot_claims.append((s, bot_action))
 
         for s, action in bot_claims:
             await self.handle_claim(s, action)
 
-        # If nobody robs: proceed to kong draw
+        # If nobody robs: proceed to quad supplement draw
         # (handled in _resolve_claims_phase if all skip or via timeout)
 
-    async def _begin_kong_draw(self, seat: int) -> None:
-        """Draw supplement tile from dead wall after kong."""
+    async def _begin_quad_draw(self, seat: int) -> None:
+        """Draw supplement tile from dead wall after a quad."""
         self.state = FSMState.KONG_DRAW
-        self._kong_supplement_seat = seat
+        self._quad_supplement_seat = seat
         tile = self.wall.draw_supplement()
         if tile is None:
             await self._exhaustive_draw()
@@ -640,8 +732,8 @@ class GameState:
             'type': 'tile_drawn', 'seat': seat, 'wall_count': self.wall.remaining(),
         })
 
-        # Check win after kong (嶺上開花)
-        flags = WinFlags(self_drawn=True, after_kong=True, last_tile=(self.wall.remaining() == 0))
+        # Check win after quad supplement (嶺上開花)
+        flags = WinFlags(self_drawn=True, after_quad=True, last_tile=(self.wall.remaining() == 0))
         options = ['discard']
         if can_win_self_drawn(p.hand[:-1], p.calls, tile, flags):
             options.append('tsumo')
@@ -654,12 +746,18 @@ class GameState:
             'drawn': tile_to_str(tile),
             'options': options,
             'redraw_eligible': False,
+            'pass_count': p.pass_count,
+            'straight_triplet_count': p.straight_triplet_count,
         })
 
         if p.is_bot:
             from bots.base import Bot
             bot: Bot = p._bot  # type: ignore
-            await self.handle_player_action(seat, bot.decide_turn(self._build_view(seat)))
+            view = self._build_view(seat)
+            view['options'] = options
+            action = bot.decide_turn(view)
+            await self._debug_log(f"{p.name} quad draw hand={view['hand']} options={options} action={action}")
+            await self.handle_player_action(seat, action)
 
     # ------------------------------------------------------------------
     # Redraw
@@ -667,35 +765,18 @@ class GameState:
 
     async def _do_redraw(self, seat: int, tile: Tile) -> None:
         p = self.players[seat]
-        p.hand.remove(tile)
-        p.river.append(tile)
-        p.river_face_down.append(False)
-
-        await self.broadcast({'type': 'redraw', 'seat': seat})
-
-        # Draw a new tile (normal draw, not supplement)
-        new_tile = self.wall.draw()
-        if new_tile is None:
-            await self._exhaustive_draw()
-            return
-        p.draw(new_tile)
+        p.discard(tile, face_down=False)
 
         await self.broadcast({
-            'type': 'tile_drawn', 'seat': seat, 'wall_count': self.wall.remaining(),
+            'type': 'discarded',
+            'seat': seat,
+            'tile': tile_to_str(tile),
+            'face_down': False,
+            'pass_count': p.pass_count,
+            'straight_triplet_count': p.straight_triplet_count,
         })
-
-        options = self._compute_turn_options(p, new_tile)
-        await self.send(seat, {
-            'type': 'your_turn',
-            'drawn': tile_to_str(new_tile),
-            'options': options,
-            'redraw_eligible': 'redraw' in options,
-        })
-
-        if p.is_bot:
-            from bots.base import Bot
-            bot: Bot = p._bot  # type: ignore
-            await self.handle_player_action(seat, bot.decide_turn(self._build_view(seat)))
+        await self.broadcast({'type': 'redraw', 'seat': seat})
+        await self._begin_await_claims(seat, tile, no_claim_next_seat=seat)
 
     # ------------------------------------------------------------------
     # End states
@@ -707,7 +788,7 @@ class GameState:
         winners_payload = []
         for w in result.winners:
             fans_payload = [
-                {'id': af.fan.id, 'name': af.fan.name_e, 'value': af.score}
+                {'id': af.fan.id, 'name': af.fan.name_c or af.fan.name_e, 'value': af.score}
                 for af in w.scoring.achieved_fans
             ]
             winners_payload.append({
@@ -735,7 +816,7 @@ class GameState:
 
         result = settle_exhaustive_draw(
             player_pass_count={s: self.players[s].pass_count for s in range(self.num_players)},
-            player_chow_pong_count={s: self.players[s].chow_pong_count for s in range(self.num_players)},
+            player_straight_triplet_count={s: self.players[s].straight_triplet_count for s in range(self.num_players)},
             player_hands={s: self.players[s].hand for s in range(self.num_players)},
             player_calls={s: self.players[s].calls for s in range(self.num_players)},
         )
@@ -763,6 +844,43 @@ class GameState:
             for c in p.calls
         )
 
+    def _can_declare_wait(self, p: PlayerState) -> bool:
+        if not self._is_concealed(p):
+            return False
+        for tile in set(p.hand):
+            hand = list(p.hand)
+            hand.remove(tile)
+            if waits(hand, p.calls):
+                return True
+        return False
+
+    def _self_quad_keeps_wait(self, p: PlayerState, tile: Tile, is_added: bool) -> bool:
+        hand = list(p.hand)
+        calls = list(p.calls)
+        if is_added:
+            if tile not in hand:
+                return False
+            hand.remove(tile)
+            for i, call in enumerate(calls):
+                if call.call_type == CallType.TRIPLET and call.tiles[0] == tile:
+                    calls[i] = Call(CallType.QUAD, [tile] * 4)
+                    return bool(waits(hand, calls))
+            return False
+
+        if hand.count(tile) < 4:
+            return False
+        for _ in range(4):
+            hand.remove(tile)
+        return bool(waits(hand, calls + [Call(CallType.CONCEALED_QUAD, [tile] * 4)]))
+
+    def _direct_quad_keeps_wait(self, p: PlayerState, tile: Tile) -> bool:
+        hand = list(p.hand)
+        if hand.count(tile) < 3:
+            return False
+        for _ in range(3):
+            hand.remove(tile)
+        return bool(waits(hand, p.calls + [Call(CallType.QUAD, [tile] * 4)]))
+
     def _all_visible_tiles(self) -> list[Tile]:
         visible = []
         for p in self.players:
@@ -787,8 +905,8 @@ class GameState:
                 'river': [tile_to_str(t) if not fd else None
                           for t, fd in zip(op.river, op.river_face_down)],
                 'pass_count': op.pass_count,
-                'chow_pong_count': op.chow_pong_count,
-                'is_riichi': op.is_riichi,
+                'straight_triplet_count': op.straight_triplet_count,
+                'has_declared_wait': op.has_declared_wait,
             })
         return {
             'seat': seat,
@@ -800,3 +918,64 @@ class GameState:
             'wall_count': self.wall.remaining() if self.wall else 0,
             'current_seat': self.current_seat,
         }
+
+    async def _debug_log(self, message: str) -> None:
+        if self.players and not self.players[0].is_bot:
+            await self.send(0, {'type': 'debug_log', 'message': message})
+
+    def _sanitize_claim(self, seat: int, claim_action: dict) -> dict:
+        claim = _claim_name(claim_action.get('claim', 'skip'))
+        if claim == 'skip':
+            return {'claim': 'skip'}
+
+        tile = self._pending_discard
+        if tile is None or seat == self._pending_from_seat:
+            return {'claim': 'skip'}
+
+        p = self.players[seat]
+        flags = WinFlags(last_tile=(self.wall.remaining() == 0) if self.wall else False)
+        claims = legal_claims(
+            hand=p.hand,
+            calls=p.calls,
+            discard=tile,
+            from_seat=self._pending_from_seat,
+            my_seat=seat,
+            num_players=self.num_players,
+            pass_count=p.pass_count,
+            straight_triplet_count=p.straight_triplet_count,
+            win_flags=flags,
+            face_down=False,
+            has_declared_wait=p.has_declared_wait,
+        )
+
+        if claim == 'win' and claims['win']:
+            return claim_action
+        normalized = {**claim_action, 'claim': claim}
+
+        if claim == TRIPLET_CALL and claims['triplet_call']:
+            return normalized
+        if claim == DIRECT_QUAD_CALL and claims['direct_quad_call']:
+            return normalized
+        if claim == STRAIGHT_CALL and claims['straight_call']:
+            chosen = claim_action.get('tiles') or []
+            if not chosen:
+                return normalized
+            chosen_key = sorted(chosen)
+            if any(sorted(tile_to_str(t) for t in c.tiles) == chosen_key for c in claims['straight_call']):
+                return normalized
+
+        return {'claim': 'skip'}
+
+    async def _continue_after_no_claim(self) -> None:
+        quad_seat = self._no_claim_quad_draw_seat
+        next_seat = self._no_claim_next_seat
+        from_seat = self._pending_from_seat
+        self._no_claim_next_seat = None
+        self._no_claim_quad_draw_seat = None
+
+        if quad_seat is not None:
+            await self._begin_quad_draw(quad_seat)
+            return
+
+        self.current_seat = next_seat if next_seat is not None else (from_seat + 1) % self.num_players
+        await self._begin_player_turn(self.current_seat)

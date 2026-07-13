@@ -1,11 +1,10 @@
 """
 Bot ②: Auto-call (自動鳴牌).
-Calls whenever legally possible (kong > pong > chow), but never wins.
+Calls whenever legally possible (direct quad > triplet > straight), but never wins.
 When needing to discard (after call or on own turn), picks randomly.
 """
 import random
 from bots.base import Bot
-from game.legal import can_chow
 from scoring.parsing import parse_tiles_english
 
 
@@ -22,12 +21,12 @@ class AutoCallBot(Bot):
         return {'type': 'discard', 'action': 'discard', 'tile': tile, 'face_down': False}
 
     def decide_claim(self, view: dict, options: list[str]) -> dict:
-        # Priority: kong > pong > chow; never win
-        if 'kong' in options:
-            return {'claim': 'kong'}
-        if 'pong' in options:
-            return {'claim': 'pong'}
-        if 'chow' in options:
-            # Pick first available chow (FSM will resolve which tiles)
-            return {'claim': 'chow', 'tiles': []}
+        # Priority: direct quad > triplet > straight; never win
+        if 'direct_quad_call' in options:
+            return {'claim': 'direct_quad_call'}
+        if 'triplet_call' in options:
+            return {'claim': 'triplet_call'}
+        if 'straight_call' in options:
+            # Pick first available straight call (FSM will resolve which tiles)
+            return {'claim': 'straight_call', 'tiles': []}
         return {'claim': 'skip'}

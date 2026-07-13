@@ -39,29 +39,65 @@ def _fans() -> dict:
 class WinFlags:
     self_drawn: bool = False
     last_tile: bool = False        # 海底/last tile in wall
-    riichi: bool = False           # 报听 (+DW)
-    after_kong: bool = False       # 嶺上開花 (+AQ)
-    robbing_kong: bool = False     # 搶槓 (+RQ)
+    declared_wait: bool = False    # 报听 (+DW)
+    after_quad: bool = False       # 嶺上開花 (+AQ)
+    robbing_quad: bool = False     # 搶槓 (+RQ)
     heavenly: bool = False         # 天和 (+BOH)
     earthly: bool = False          # 地和 (+BOE)
-    eastern_wind: bool = False     # 天聽 (+EW)
+    heavenly_wait: bool = False    # 天聽 (+EW)
+
+    @property
+    def riichi(self) -> bool:
+        """Legacy alias for declared_wait."""
+        return self.declared_wait
+
+    @riichi.setter
+    def riichi(self, value: bool) -> None:
+        self.declared_wait = value
+
+    @property
+    def after_kong(self) -> bool:
+        """Legacy alias for after_quad."""
+        return self.after_quad
+
+    @after_kong.setter
+    def after_kong(self, value: bool) -> None:
+        self.after_quad = value
+
+    @property
+    def robbing_kong(self) -> bool:
+        """Legacy alias for robbing_quad."""
+        return self.robbing_quad
+
+    @robbing_kong.setter
+    def robbing_kong(self, value: bool) -> None:
+        self.robbing_quad = value
+
+    @property
+    def eastern_wind(self) -> bool:
+        """Legacy alias for heavenly_wait."""
+        return self.heavenly_wait
+
+    @eastern_wind.setter
+    def eastern_wind(self, value: bool) -> None:
+        self.heavenly_wait = value
 
 
 def _build_notes(flags: WinFlags) -> str:
     parts = []
     if flags.last_tile:
         parts.append('+LT')
-    if flags.riichi:
+    if flags.declared_wait:
         parts.append('+DW')
-    if flags.after_kong:
+    if flags.after_quad:
         parts.append('+AQ')
-    if flags.robbing_kong:
+    if flags.robbing_quad:
         parts.append('+RQ')
     if flags.heavenly:
         parts.append('+BOH')
     if flags.earthly:
         parts.append('+BOE')
-    if flags.eastern_wind:
+    if flags.heavenly_wait:
         parts.append('+EW')
     return ''.join(parts)
 

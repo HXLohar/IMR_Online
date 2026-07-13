@@ -1,6 +1,6 @@
 """
 Bot ①: Pure discard (摸切).
-Never calls chow/pong/kong. Never wins. Always discards the last drawn tile.
+Never makes straight/triplet/quad calls. Never wins. Always discards the last drawn tile.
 """
 from bots.base import Bot
 
