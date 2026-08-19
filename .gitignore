@@ -4,4 +4,11 @@ client/.vite/
 server/**/__pycache__/
 server/.pytest_cache/
 server/*.egg-info/
+__pycache__/
+.pytest_cache/
+.pytest-tmp/
+.venv/
+client/.pytest_cache/
+client/dist/
+server/*.sqlite3
 *.pyc

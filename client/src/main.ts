@@ -2,6 +2,145 @@ import { connect, onMessage, send } from './net/ws'
 import { store, updateStore } from './state/store'
 import { renderBoard, setStatus, addLog, exportLog } from './render/board'
 import { renderControls, initKeyboardShortcuts } from './render/controls'
+import type { BotType, ClaimType, MatchLength, RoomVisibility } from './protocol/messages'
+
+let activeUser: { id: number; username: string } | null = null
+let connected = false
+
+function ui(id: string): HTMLElement { return document.getElementById(id)! }
+
+function showScreen(screen: 'auth' | 'lobby' | 'room' | 'game'): void {
+  ui('app').classList.toggle('auth-mode', screen === 'auth')
+  ui('auth-screen').style.display = screen === 'auth' ? '' : 'none'
+  ui('lobby-screen').style.display = screen === 'lobby' ? '' : 'none'
+  ui('room-screen').style.display = screen === 'room' ? '' : 'none'
+  ui('board').style.display = screen === 'game' ? '' : 'none'
+}
+
+async function api(path: string, options: RequestInit = {}): Promise<any> {
+  const response = await fetch(path, { credentials: 'include', ...options,
+    headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) } })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(formatApiError(body.detail))
+  return body
+}
+
+function formatApiError(detail: unknown): string {
+  const messages: Record<string, string> = {
+    'Username already exists': '此帳號已存在，請換一個帳號。',
+    'Invalid username or password': '帳號或密碼不正確。',
+    'Login required': '請先登入。',
+    'Request failed': '請求失敗，請稍後再試。',
+  }
+  if (typeof detail === 'string') return messages[detail] ?? detail
+  if (Array.isArray(detail)) {
+    return detail.map((item) => {
+      const error = item as { loc?: unknown[]; type?: string }
+      const field = error.loc?.[error.loc.length - 1]
+      const name = field === 'username' ? '帳號' : field === 'password' ? '密碼' : '欄位'
+      if (error.type?.includes('missing')) return `請輸入${name}。`
+      if (error.type?.includes('min_length') || error.type?.includes('too_short')) return `${name}長度不足。`
+      if (error.type?.includes('max_length') || error.type?.includes('too_long')) return `${name}長度過長。`
+      if (error.type?.includes('pattern')) return '帳號只能使用英文字母、數字、底線與連字號。'
+      return `${name}格式不正確。`
+    }).join(' ')
+  }
+  return messages['Request failed']
+}
+
+function matchLength(value: string): MatchLength {
+  const length = Number(value)
+  if (length === 1 || length === 4 || length === 8) return length
+  return 1
+}
+
+function connectLobby(): void {
+  if (connected) return
+  connected = true
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  connect(`${protocol}://${window.location.host}/ws`)
+}
+
+function showLobby(): void {
+  showScreen('lobby')
+  ui('lobby-user').textContent = activeUser ? `Signed in as ${activeUser.username}` : ''
+}
+
+function applyMatchSnapshot(snapshot: Record<string, unknown>): void {
+  const players = (snapshot['players'] as any[]) ?? []
+  const mySeat = snapshot['your_seat'] as number
+  const others: typeof store.others = {}
+  for (const other of players) {
+    if (other.seat === mySeat) continue
+    others[other.seat] = {
+      seat: other.seat, name: other.name ?? `Seat ${other.seat}`, is_bot: other.is_bot ?? false,
+      hand_count: other.hand_count ?? 0, calls: other.calls ?? [], river: other.river ?? [],
+      pass_count: other.pass_count ?? 0, straightTripletCount: other.straight_triplet_count ?? 0,
+      hasDeclaredWait: other.has_declared_wait ?? false,
+    }
+  }
+  const wall = snapshot['wall'] as { remaining?: number } | null
+  updateStore({
+    phase: 'playing', mySeat, players: players as typeof store.players,
+    hand: (snapshot['your_hand'] as string[]) ?? [], calls: (snapshot['your_calls'] as string[]) ?? [],
+    river: (snapshot['your_river'] as (string | null)[]) ?? [], others,
+    pass_count: (snapshot['pass_count'] as number) ?? 0,
+    straightTripletCount: (snapshot['straight_triplet_count'] as number) ?? 0,
+    hasDeclaredWait: (snapshot['has_declared_wait'] as boolean) ?? false,
+    wallCount: wall?.remaining ?? 0, currentSeat: snapshot['current_seat'] as number,
+    myTurnOptions: (snapshot['legal_options'] as string[]) ?? [],
+    drawnTile: (snapshot['drawn_tile'] as string | null) ?? null,
+    turnId: (snapshot['turn_id'] as number | null) ?? null,
+    turnDeadlineAt: (snapshot['turn_deadline_at_ms'] as number | null) ?? null,
+    claimOptions: (snapshot['legal_options'] as string[] ?? []).filter((o) => o === 'win' || o.endsWith('_call') || o === 'skip'),
+    claimTile: (snapshot['claim_tile'] as string | null) ?? null,
+    claimFromSeat: (snapshot['claim_from_seat'] as number | null) ?? null,
+    claimWindowId: (snapshot['window_id'] as number | null) ?? null,
+    claimDeadlineAt: (snapshot['window_deadline_at_ms'] as number | null) ?? null,
+  })
+  showScreen('game')
+  render()
+}
+
+function renderRooms(rooms: any[]): void {
+  const list = ui('room-list')
+  list.innerHTML = ''
+  if (!rooms.length) { list.textContent = 'No public rooms'; return }
+  for (const room of rooms) {
+    const card = document.createElement('div')
+    card.className = 'room-card'
+    const names = room.seats.map((s: any) => s.name).join(', ')
+    card.innerHTML = `<span>${room.owner_name} · ${room.length} hands<br><small>${names}</small></span>`
+    const button = document.createElement('button')
+    button.textContent = 'Join'
+    button.onclick = () => send({ type: 'join_room', room_id: room.id })
+    card.appendChild(button)
+    list.appendChild(card)
+  }
+}
+
+function renderRoom(room: any): void {
+  showScreen('room')
+  ui('room-id').textContent = room.id
+  ui('room-code').textContent = room.code ? `Invite code: ${room.code}` : 'Public room'
+  ;(ui('config-length') as HTMLSelectElement).value = String(room.length)
+  const seats = ui('room-seats')
+  seats.innerHTML = ''
+  room.seats.forEach((seat: any) => {
+    const card = document.createElement('div')
+    card.className = 'seat-card'
+    const connection = seat.is_bot || seat.connected ? '已連線' : '離線'
+    card.textContent = `Seat ${seat.seat}: ${seat.name} · ${connection}`
+    if (!seat.user_id && room.owner_id === activeUser?.id && seat.seat > 0) {
+      const select = document.createElement('select')
+      select.dataset.seat = String(seat.seat)
+      select.innerHTML = '<option value="">Human</option><option value="efficiency">Efficiency AI</option><option value="auto_call">Auto-call AI</option><option value="discard_only">Discard AI</option>'
+      select.value = seat.bot ?? ''
+      card.appendChild(select)
+    }
+    seats.appendChild(card)
+  })
+}
 
 // ---------------------------------------------------------------------------
 // Message handlers
@@ -12,6 +151,98 @@ function handleMessage(msg: unknown): void {
   const type = m['type'] as string
 
   switch (type) {
+    case 'session': {
+      activeUser = m['user'] as typeof activeUser
+      showLobby()
+      break
+    }
+    case 'lobby_state': {
+      renderRooms((m['rooms'] as any[]) ?? [])
+      if (ui('room-screen').style.display === 'none' && ui('board').style.display === 'none') showLobby()
+      break
+    }
+    case 'room_state': {
+      renderRoom(m['room'])
+      break
+    }
+    case 'room_closed':
+    case 'room_left': {
+      showLobby()
+      setStatus(type === 'room_closed' ? '房主已離開，房間已關閉。' : '已離開房間。')
+      break
+    }
+    case 'queue_joined': {
+      ;(ui('queue-btn') as HTMLButtonElement).style.display = 'none'
+      ;(ui('queue-cancel-btn') as HTMLButtonElement).style.display = ''
+      setStatus(`Waiting for players (${m['size']}/4)`)
+      break
+    }
+    case 'queue_left': {
+      ;(ui('queue-btn') as HTMLButtonElement).style.display = ''
+      ;(ui('queue-cancel-btn') as HTMLButtonElement).style.display = 'none'
+      break
+    }
+    case 'match_started': {
+      const players = m['players'] as Array<{ seat: number; user_id: number | null; name: string; is_bot: boolean }>
+      const mine = players.find((player) => player.user_id === activeUser?.id)
+      updateStore({ players: players as typeof store.players, mySeat: mine?.seat ?? 0, phase: 'playing' })
+      showScreen('game')
+      break
+    }
+    case 'next_hand': {
+      addLog(`Hand ${m['hand']} / ${m['total_hands']}`, `Hand ${m['hand']} / ${m['total_hands']}`)
+      break
+    }
+    case 'match_snapshot': {
+      applyMatchSnapshot(m)
+      setStatus('已同步最新牌局狀態。')
+      break
+    }
+    case 'match_resume': {
+      if (m['snapshot']) {
+        applyMatchSnapshot(m['snapshot'] as Record<string, unknown>)
+        break
+      }
+      const resumedOthers: typeof store.others = {}
+      for (const other of (m['others'] as any[]) ?? []) resumedOthers[other.seat] = {
+        seat: other.seat, name: other.name ?? `Seat ${other.seat}`, is_bot: other.is_bot ?? false,
+        hand_count: other.hand_count, calls: other.calls ?? [], river: other.river ?? [],
+        pass_count: other.pass_count ?? 0, straightTripletCount: other.straight_triplet_count ?? 0,
+        hasDeclaredWait: other.has_declared_wait ?? false,
+      }
+      updateStore({ phase: 'playing', mySeat: m['your_seat'] as number, hand: m['your_hand'] as string[],
+        calls: m['your_calls'] as string[], river: m['your_river'] as (string | null)[], others: resumedOthers,
+         currentSeat: m['current_seat'] as number, myTurnOptions: [], claimOptions: [],
+         turnId: null, turnDeadlineAt: null, claimWindowId: null, claimDeadlineAt: null })
+      showScreen('game')
+      break
+    }
+    case 'match_lost': {
+      updateStore({ phase: 'lobby', hand: [], calls: [], river: [], myTurnOptions: [], claimOptions: [] })
+      showLobby()
+      setStatus('牌局已遺失（伺服器重啟），已返回大廳。')
+      break
+    }
+    case 'match_paused': {
+      setStatus(`Player ${m['seat']} disconnected; waiting ${Math.ceil(m['seconds_left'] as number)}s`)
+      addLog(`Player ${m['seat']} disconnected`, `Player ${m['seat']} disconnected`)
+      break
+    }
+    case 'match_resumed': {
+      setStatus('Match resumed')
+      break
+    }
+    case 'player_takeover': {
+      addLog(`Player ${m['seat']} is now auto-playing`, `Player ${m['seat']} is now auto-playing`)
+      break
+    }
+    case 'match_finished': {
+      updateStore({ lastResult: m, phase: 'ended', myTurnOptions: [], claimOptions: [] })
+      showScreen('game')
+      showMatchResult(m)
+      render()
+      break
+    }
     case 'joined': {
       updateStore({
         phase: 'lobby',
@@ -64,11 +295,16 @@ function handleMessage(msg: unknown): void {
         claimOptions: [],
         pass_count: (m['pass_count'] as number | undefined) ?? store.pass_count,
         straightTripletCount: straightTripletCountFrom(m, store.straightTripletCount),
+        turnId: (m['turn_id'] as number | undefined) ?? null,
+        turnDeadlineAt: (m['deadline_at_ms'] as number | undefined) ?? null,
+        claimWindowId: null,
+        claimDeadlineAt: null,
       })
       if (m['drawn']) {
         updateStore({ hand: [...store.hand, m['drawn'] as string] })
       }
-      setStatus(`你的回合！摸到: ${m['drawn'] ?? '(副露後出牌)'}`)
+       const deadline = m['deadline_at_ms'] as number | undefined
+       setStatus(`你的回合！摸到: ${m['drawn'] ?? '(副露後出牌)'}${deadline ? `，截止 ${new Date(deadline).toLocaleTimeString()}` : ''}`)
       addLog(`你的回合，選項: ${(m['options'] as string[]).join(', ')}`, `Your turn, options: ${(m['options'] as string[]).join(', ')}`)
       render()
       break
@@ -89,6 +325,8 @@ function handleMessage(msg: unknown): void {
           myTurnOptions: [],
           pass_count: (m['pass_count'] as number | undefined) ?? store.pass_count + (faceDown ? 1 : 0),
           straightTripletCount: straightTripletCountFrom(m, store.straightTripletCount),
+          turnId: null,
+          turnDeadlineAt: null,
         })
       } else {
         const other = { ...store.others[seat] }
@@ -103,9 +341,9 @@ function handleMessage(msg: unknown): void {
     }
 
     case 'claim_window': {
-      const opts = m['your_options'] as string[]
+      const opts = m['your_options'] as ClaimType[]
       if (opts.length === 1 && opts[0] === 'skip') {
-        send({ type: 'claim', claim: 'skip' })
+        send({ type: 'claim', claim: 'skip', window_id: m['window_id'] as number })
         break
       }
       updateStore({
@@ -115,8 +353,12 @@ function handleMessage(msg: unknown): void {
         myTurnOptions: [],
         pass_count: (m['pass_count'] as number | undefined) ?? store.pass_count,
         straightTripletCount: straightTripletCountFrom(m, store.straightTripletCount),
+        claimWindowId: m['window_id'] as number,
+        claimDeadlineAt: m['deadline_at_ms'] as number,
+        turnId: null,
+        turnDeadlineAt: null,
       })
-      setStatus(`鳴牌窗口：${m['tile']} from Seat ${m['from_seat']}`)
+      setStatus(`鳴牌窗口：${m['tile']} from Seat ${m['from_seat']}，截止 ${new Date(m['deadline_at_ms'] as number).toLocaleTimeString()}`)
       render()
       break
     }
@@ -194,16 +436,12 @@ function handleMessage(msg: unknown): void {
     }
 
     case 'hand_result': {
-      updateStore({ lastResult: m, phase: 'ended', myTurnOptions: [], claimOptions: [] })
-      showResult(m)
       addLog('和牌結算完成', 'Hand result settled')
       render()
       break
     }
 
     case 'draw_result': {
-      updateStore({ lastResult: m, phase: 'ended', myTurnOptions: [], claimOptions: [] })
-      showDrawResult(m)
       addLog('荒牌結算完成', 'Draw result settled')
       render()
       break
@@ -282,6 +520,16 @@ function showDrawResult(m: Record<string, unknown>): void {
   html += '</div>'
 
   body.innerHTML = html
+}
+
+function showMatchResult(m: Record<string, unknown>): void {
+  const overlay = document.getElementById('result-overlay')!
+  const title = document.getElementById('result-title')!
+  const body = document.getElementById('result-body')!
+  overlay.classList.remove('hidden')
+  title.textContent = 'Match complete'
+  const results = m['results'] as Array<Record<string, unknown>>
+  body.innerHTML = results.map((r) => `<div class="payment-row"><span>${r['name']}</span><span>Rank ${r['rank']} · ${r['score']}</span></div>`).join('')
 }
 
 // ---------------------------------------------------------------------------
@@ -409,5 +657,68 @@ setStatus('連接中…')
 onMessage(handleMessage)
 initKeyboardShortcuts(render)
 
-const wsUrl = `ws://${window.location.hostname}:8000/ws`
-connect(wsUrl)
+async function signIn(path: string): Promise<void> {
+  const form = ui('login-form') as HTMLFormElement
+  if (!form.reportValidity()) return
+  const username = (ui('auth-username') as HTMLInputElement).value
+  const password = (ui('auth-password') as HTMLInputElement).value
+  ui('auth-error').textContent = ''
+  try {
+    const result = await api(path, { method: 'POST', body: JSON.stringify({ username, password }) })
+    activeUser = result.user
+    connectLobby()
+  } catch (error) {
+    ui('auth-error').textContent = error instanceof Error ? error.message : 'Authentication failed'
+  }
+}
+
+ui('login-form').addEventListener('submit', (event) => {
+  event.preventDefault()
+  const submitter = (event as SubmitEvent).submitter as HTMLButtonElement | null
+  void signIn(submitter?.value === 'register' ? '/api/auth/register' : '/api/auth/login')
+})
+ui('logout-btn').addEventListener('click', async () => {
+  await api('/api/auth/logout', { method: 'POST' }).catch(() => undefined)
+  window.location.reload()
+})
+ui('profile-btn').addEventListener('click', async () => {
+  const box = ui('profile-box')
+  const result = await api('/api/profile')
+  const allReplays = await api('/api/replays')
+  box.innerHTML = `<pre>${JSON.stringify({ games: result.games, wins: result.wins, draws: result.draws, losses: result.losses, win_rate: result.win_rate, average_score: result.average_score }, null, 2)}</pre><h3>Recent matches and room replays</h3>`
+  for (const match of allReplays.replays ?? []) {
+    const button = document.createElement('button')
+    button.textContent = `Replay ${match.id}`
+    button.onclick = async () => {
+      const replay = await api(`/api/replays/${match.id}`)
+      const pre = document.createElement('pre')
+      pre.textContent = JSON.stringify(replay, null, 2)
+      box.appendChild(pre)
+    }
+    box.appendChild(button)
+  }
+  box.style.display = box.style.display === 'none' ? '' : 'none'
+})
+ui('queue-btn').addEventListener('click', () => send({ type: 'queue_join', length: matchLength((ui('queue-length') as HTMLSelectElement).value) }))
+ui('queue-cancel-btn').addEventListener('click', () => send({ type: 'queue_leave', length: matchLength((ui('queue-length') as HTMLSelectElement).value) }))
+ui('create-room-btn').addEventListener('click', () => send({
+  type: 'create_room', length: matchLength((ui('room-length') as HTMLSelectElement).value),
+  visibility: (ui('room-visibility') as HTMLSelectElement).value as RoomVisibility,
+}))
+ui('join-code-btn').addEventListener('click', () => send({
+  type: 'join_room', code: (ui('join-code') as HTMLInputElement).value.trim(),
+}))
+ui('save-config-btn').addEventListener('click', () => {
+  const bots: Record<string, BotType | null> = {}
+  document.querySelectorAll<HTMLSelectElement>('#room-seats select[data-seat]').forEach((select) => {
+    bots[select.dataset.seat!] = (select.value || null) as BotType | null
+  })
+  send({ type: 'set_room_config', length: matchLength((ui('config-length') as HTMLSelectElement).value), bots })
+})
+ui('start-room-btn').addEventListener('click', () => send({ type: 'start_room' }))
+ui('leave-room-btn').addEventListener('click', () => send({ type: 'leave_room' }))
+
+void api('/api/me').then((result) => {
+  activeUser = result.user
+  connectLobby()
+}).catch(() => showScreen('auth'))

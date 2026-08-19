@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>IMR Online — 創新麻將</title>
+  <title>IMR Online｜麻將線上對局</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -16,6 +16,9 @@
       align-items: center;
     }
     #app { width: 100%; max-width: 1200px; padding: 12px; }
+    #app.auth-mode { max-width: none; padding: 0; min-height: 100vh; }
+    #app.auth-mode > #status-bar { display: none; }
+    #app.auth-mode > #log-container { display: none; }
     #status-bar {
       background: #111;
       padding: 6px 12px;
@@ -201,12 +204,184 @@
       border-radius: 2px;
       margin-left: 4px;
     }
+    .screen { background: rgba(0,0,0,.28); border-radius: 10px; padding: 18px; margin-bottom: 12px; }
+    .screen h1, .screen h2 { color: #ffd700; margin-bottom: 12px; }
+    .screen input, .screen select { padding: 8px; border-radius: 5px; border: 1px solid #777; margin: 4px; }
+    .screen button { margin: 4px; }
+    .room-card { border: 1px solid #477447; border-radius: 8px; padding: 10px; margin: 8px 0; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .seat-grid { display:grid; grid-template-columns:repeat(2, minmax(160px, 1fr)); gap:8px; margin:12px 0; }
+    .seat-card { background:rgba(255,255,255,.08); padding:8px; border-radius:6px; }
+    #auth-error, #lobby-error, #room-error { color:#ffaaaa; min-height:20px; }
+
+    .auth-screen {
+      display: grid;
+      grid-template-columns: minmax(0, 7fr) minmax(320px, 3fr);
+      min-height: 100vh;
+      padding: 0;
+      margin: 0;
+      border-radius: 0;
+      overflow: hidden;
+      background: #0b1915;
+    }
+    .auth-visual {
+      position: relative;
+      display: flex;
+      align-items: flex-end;
+      min-height: 100vh;
+      overflow: hidden;
+      isolation: isolate;
+    }
+    .auth-visual::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      background: linear-gradient(90deg, rgba(6, 20, 15, .05) 25%, rgba(6, 20, 15, .35) 72%, #0b1915 100%), linear-gradient(0deg, rgba(6, 20, 15, .8), transparent 58%);
+    }
+    .auth-visual img {
+      position: absolute;
+      inset: 0;
+      z-index: -2;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: left center;
+    }
+    .auth-visual-copy {
+      max-width: 560px;
+      padding: clamp(32px, 6vw, 84px);
+    }
+    .auth-kicker {
+      color: #d7b96d;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .22em;
+      margin-bottom: 14px;
+    }
+    .auth-visual h2 {
+      color: #fff8e6;
+      font-size: clamp(32px, 4vw, 62px);
+      line-height: 1.08;
+      margin-bottom: 14px;
+    }
+    .auth-visual p {
+      color: rgba(255, 248, 230, .78);
+      font-size: 15px;
+      line-height: 1.8;
+    }
+    .auth-panel {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: clamp(28px, 4vw, 64px);
+      background: rgba(9, 23, 18, .94);
+    }
+    .auth-card { width: min(100%, 340px); }
+    .auth-brand {
+      color: #d7b96d;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .16em;
+      margin-bottom: 20px;
+    }
+    .auth-card h1 { color: #fff8e6; font-size: 30px; margin-bottom: 8px; }
+    .auth-subtitle { color: #9eb1a5; font-size: 14px; margin-bottom: 28px; }
+    .auth-form { display: grid; gap: 14px; }
+    .auth-field { display: grid; gap: 7px; }
+    .auth-field label { color: #d9e4db; font-size: 13px; }
+    .auth-field input {
+      width: 100%;
+      margin: 0;
+      padding: 12px 14px;
+      color: #f5fbf6;
+      background: #14271f;
+      border: 1px solid #385246;
+      border-radius: 8px;
+      outline: none;
+    }
+    .auth-field input:focus { border-color: #d7b96d; box-shadow: 0 0 0 3px rgba(215, 185, 109, .12); }
+    .auth-actions { display: grid; gap: 10px; margin-top: 8px; }
+    .auth-actions button { width: 100%; margin: 0; padding: 12px 16px; border-radius: 8px; }
+    .auth-actions .primary { color: #122018; background: #d7b96d; }
+    .auth-actions .primary:hover:not(:disabled) { background: #efd28a; }
+    .auth-actions .secondary { color: #dce9df; background: transparent; border: 1px solid #496455; }
+    .auth-actions .secondary:hover:not(:disabled) { background: rgba(255,255,255,.06); }
+    .auth-help { color: #80978a; font-size: 12px; line-height: 1.6; margin-top: 22px; }
+    #auth-error { margin-top: 14px; line-height: 1.5; }
+    @media (max-width: 760px) {
+      .auth-screen { grid-template-columns: 1fr; }
+      .auth-visual { min-height: 38vh; }
+      .auth-visual-copy { padding: 32px; }
+      .auth-visual h2 { font-size: 34px; }
+      .auth-panel { min-height: 62vh; align-items: flex-start; padding: 36px 28px 48px; }
+    }
   </style>
 </head>
 <body>
-  <div id="app">
+  <div id="app" class="auth-mode">
+    <section id="auth-screen" class="screen auth-screen">
+      <div class="auth-visual">
+        <img src="/auth-hero.png" alt="幾張麻將牌擺放在綠色牌桌上" />
+        <div class="auth-visual-copy">
+          <div class="auth-kicker">IMR ONLINE</div>
+          <h2>牌局，從這裡開始。</h2>
+          <p>登入你的帳號，和牌友一起享受每一手牌的節奏。</p>
+        </div>
+      </div>
+      <div class="auth-panel">
+        <div class="auth-card">
+          <div class="auth-brand">麻將線上對局</div>
+          <h1>歡迎回來</h1>
+          <p class="auth-subtitle">登入後即可加入牌局</p>
+          <form id="login-form" class="auth-form">
+            <div class="auth-field">
+              <label for="auth-username">帳號</label>
+              <input id="auth-username" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_-]+" autocomplete="username" placeholder="請輸入帳號" />
+            </div>
+            <div class="auth-field">
+              <label for="auth-password">密碼</label>
+              <input id="auth-password" required minlength="8" type="password" autocomplete="current-password" placeholder="至少 8 個字元" />
+            </div>
+            <div class="auth-actions">
+              <button class="primary" type="submit" value="login">登入</button>
+              <button class="secondary" type="submit" id="register-btn" value="register">建立新帳號</button>
+            </div>
+          </form>
+          <div id="auth-error" role="alert" aria-live="polite"></div>
+          <p class="auth-help">帳號僅能使用英文字母、數字、底線與連字號。</p>
+        </div>
+      </div>
+    </section>
+    <section id="lobby-screen" class="screen" style="display:none">
+      <h1>Lobby</h1>
+      <div id="lobby-user"></div>
+      <button id="logout-btn">Logout</button>
+      <button id="profile-btn">Profile</button>
+      <h2>Quick match</h2>
+      <select id="queue-length"><option value="1">1 hand</option><option value="4">1 round (4 hands)</option><option value="8">2 rounds (8 hands)</option></select>
+      <button id="queue-btn">Find players</button>
+      <button id="queue-cancel-btn" style="display:none">Cancel queue</button>
+      <h2>Create room</h2>
+      <select id="room-length"><option value="1">1 hand</option><option value="4">1 round (4 hands)</option><option value="8">2 rounds (8 hands)</option></select>
+      <select id="room-visibility"><option value="public">Public</option><option value="private">Private code</option></select>
+      <button id="create-room-btn">Create room</button>
+      <h2>Rooms</h2><div id="room-list"></div>
+      <input id="join-code" placeholder="Private room code" /><button id="join-code-btn">Join code</button>
+      <div id="lobby-error"></div>
+      <div id="profile-box" style="display:none"></div>
+    </section>
+    <section id="room-screen" class="screen" style="display:none">
+      <h1>Room <span id="room-id"></span></h1>
+      <div id="room-code"></div>
+      <div class="seat-grid" id="room-seats"></div>
+      <select id="config-length"><option value="1">1 hand</option><option value="4">1 round (4 hands)</option><option value="8">2 rounds (8 hands)</option></select>
+      <button id="save-config-btn">Save settings</button>
+      <button id="start-room-btn">Start</button>
+      <button id="leave-room-btn">Leave</button>
+      <div id="room-error"></div>
+    </section>
     <div id="status-bar">連接中…</div>
-    <div class="board" id="board">
+    <div class="board" id="board" style="display:none">
       <!-- Top opponents (seats 2, 3, 1 displayed top/right/left) -->
       <div id="opp-top" class="player-section opponent-row">
         <div class="section-label">對家 (Seat 2)</div>

@@ -2,6 +2,7 @@ import { store } from '../state/store'
 import { send } from '../net/ws'
 import { sortTiles } from '../tiles'
 import { makeTile } from './board'
+import type { ClaimType } from '../protocol/messages'
 
 function el(id: string): HTMLElement {
   return document.getElementById(id) as HTMLElement
@@ -9,10 +10,16 @@ function el(id: string): HTMLElement {
 
 let _selectedTile: string | null = null
 let _autoSkipTimer: number | null = null
+let _waitAutoDiscardTimer: number | null = null
 
 function clearAutoSkipTimer(): void {
   if (_autoSkipTimer !== null) window.clearTimeout(_autoSkipTimer)
   _autoSkipTimer = null
+}
+
+function clearWaitAutoDiscardTimer(): void {
+  if (_waitAutoDiscardTimer !== null) window.clearTimeout(_waitAutoDiscardTimer)
+  _waitAutoDiscardTimer = null
 }
 
 function canAddPass(): boolean {
@@ -30,7 +37,7 @@ function tileCount(tile: string): number {
 }
 
 function discard(tile: string, faceDown = false): void {
-  send({ type: 'discard', tile, face_down: faceDown })
+  send({ type: 'discard', tile, face_down: faceDown, turn_id: store.turnId ?? undefined })
   _selectedTile = null
   store.myTurnOptions = []
 }
@@ -72,6 +79,7 @@ export function renderControls(): void {
   const ctrl = el('controls')
   ctrl.innerHTML = ''
   clearAutoSkipTimer()
+  clearWaitAutoDiscardTimer()
   const footer = makeShortcutFooter()
 
   // --- Claim window ---
@@ -95,7 +103,7 @@ export function renderControls(): void {
         // Show one button per valid straight-call combination
         for (const tiles of getStraightCallOptions(store.hand, store.claimTile)) {
           const btn = makeBtn(`吃 ${tiles.join('')}`, () => {
-            send({ type: 'claim', claim: 'straight_call', tiles })
+            send({ type: 'claim', claim: 'straight_call', tiles, window_id: store.claimWindowId ?? undefined })
             clearClaim(true)
           })
           fillClaimTileBtn(btn, '吃', tiles.filter(t => t !== store.claimTile), store.claimTile)
@@ -108,7 +116,7 @@ export function renderControls(): void {
         }
       } else {
         const btn = makeBtn(claimLabel(opt), () => {
-          send({ type: 'claim', claim: opt })
+          send({ type: 'claim', claim: opt as ClaimType, window_id: store.claimWindowId ?? undefined })
           clearClaim(opt !== 'skip')
         })
         if ((opt === 'triplet_call' || opt === 'direct_quad_call') && store.claimTile) {
@@ -147,7 +155,7 @@ export function renderControls(): void {
     )
     if (disabledClaims > 0 && !hasEnabledClaim) {
       _autoSkipTimer = window.setTimeout(() => {
-        send({ type: 'claim', claim: 'skip' })
+        send({ type: 'claim', claim: 'skip', window_id: store.claimWindowId ?? undefined })
         clearClaim()
         renderControls()
       }, 2000)
@@ -176,7 +184,7 @@ export function renderControls(): void {
 
     if (store.myTurnOptions.includes('tsumo')) {
       ctrl.appendChild(makeBtn('自摸', () => {
-        send({ type: 'self_action', action: 'tsumo' })
+        send({ type: 'self_action', action: 'tsumo', turn_id: store.turnId ?? undefined })
         store.myTurnOptions = []
       }))
     }
@@ -184,7 +192,7 @@ export function renderControls(): void {
     if (store.myTurnOptions.includes('concealed_quad_declare')) {
       ctrl.appendChild(makeBtn('暗槓', () => {
         if (!_selectedTile) { alert('請先點選槓的牌'); return }
-        send({ type: 'self_action', action: 'concealed_quad_declare', tile: _selectedTile })
+        send({ type: 'self_action', action: 'concealed_quad_declare', tile: _selectedTile, turn_id: store.turnId ?? undefined })
         _selectedTile = null
         store.myTurnOptions = []
       }))
@@ -193,7 +201,7 @@ export function renderControls(): void {
     if (store.myTurnOptions.includes('upgraded_quad_declare')) {
       ctrl.appendChild(makeBtn('加槓', () => {
         if (!_selectedTile) { alert('請先點選加槓的牌'); return }
-        send({ type: 'self_action', action: 'upgraded_quad_declare', tile: _selectedTile })
+        send({ type: 'self_action', action: 'upgraded_quad_declare', tile: _selectedTile, turn_id: store.turnId ?? undefined })
         _selectedTile = null
         store.myTurnOptions = []
       }))
@@ -201,18 +209,38 @@ export function renderControls(): void {
 
     if (store.myTurnOptions.includes('redraw')) {
       ctrl.appendChild(makeBtn('重摸', () => {
-        send({ type: 'self_action', action: 'redraw' })
+        send({ type: 'self_action', action: 'redraw', turn_id: store.turnId ?? undefined })
         store.myTurnOptions = []
       }))
     }
 
     if (store.myTurnOptions.includes('declare_wait')) {
       ctrl.appendChild(makeBtn('报听', () => {
-        send({ type: 'self_action', action: 'declare_wait' })
+        if (!_selectedTile) { alert('請先點選宣告聽牌後要打出的牌'); return }
+        send({ type: 'self_action', action: 'declare_wait', tile: _selectedTile, turn_id: store.turnId ?? undefined })
+        _selectedTile = null
+        store.myTurnOptions = []
       }))
     }
+    scheduleWaitAutoDiscard()
   }
   ctrl.appendChild(footer)
+}
+
+function scheduleWaitAutoDiscard(): void {
+  const drawn = store.drawnTile
+  if (!store.hasDeclaredWait || !drawn || !store.myTurnOptions.includes('discard')) return
+
+  _selectedTile = drawn
+  el('hand-area').querySelector('.drawn-tile')?.classList.add('selected')
+
+  if (store.myTurnOptions.some(option => option !== 'discard')) return
+
+  _waitAutoDiscardTimer = window.setTimeout(() => {
+    if (store.hasDeclaredWait && store.drawnTile === drawn && store.myTurnOptions.includes('discard')) {
+      discard(drawn)
+    }
+  }, canAddPass() ? 6000 : 2000)
 }
 
 // keepTile=true: preserve claimTile so call_made can use it to remove hand tiles
@@ -308,7 +336,7 @@ export function initKeyboardShortcuts(render: () => void): void {
       if (!store.myTurnOptions.includes('discard')) return
       const tile = store.drawnTile
       if (!tile) return
-      send({ type: 'discard', tile, face_down: false })
+      send({ type: 'discard', tile, face_down: false, turn_id: store.turnId ?? undefined })
       _selectedTile = null
       store.myTurnOptions = []
       render()
@@ -330,7 +358,7 @@ export function initKeyboardShortcuts(render: () => void): void {
       if (!store.myTurnOptions.includes('discard') || !_selectedTile) return
       if (!canAddPass()) return
       if (!window.confirm(`確定讓過 ${_selectedTile}？`)) return
-      send({ type: 'discard', tile: _selectedTile, face_down: true })
+      send({ type: 'discard', tile: _selectedTile, face_down: true, turn_id: store.turnId ?? undefined })
       _selectedTile = null
       store.myTurnOptions = []
       render()
@@ -338,7 +366,7 @@ export function initKeyboardShortcuts(render: () => void): void {
 
     if (e.key === 'r' || e.key === 'R') {
       if (!store.myTurnOptions.includes('redraw')) return
-      send({ type: 'self_action', action: 'redraw' })
+      send({ type: 'self_action', action: 'redraw', turn_id: store.turnId ?? undefined })
       store.myTurnOptions = []
       render()
     }

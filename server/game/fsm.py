@@ -13,6 +13,7 @@ The resolve_claims() helper is a pure function for easy unit-testing.
 """
 from __future__ import annotations
 import asyncio
+import time
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any, Callable, Awaitable
@@ -141,12 +142,16 @@ class GameState:
         send_fn: Callable[[int, dict], Awaitable[None]] | None = None,
         broadcast_fn: Callable[[dict], Awaitable[None]] | None = None,
         seed: int | None = None,
+        hand_complete_fn: Callable[[dict], Awaitable[None]] | None = None,
+        timeout_fn: Callable[[str, int], Awaitable[None]] | None = None,
     ):
         self.players = players
         self.num_players = len(players)
         self.send = send_fn or (lambda seat, msg: None)
         self.broadcast = broadcast_fn or (lambda msg: None)
         self._seed = seed
+        self.hand_complete_fn = hand_complete_fn
+        self.timeout_fn = timeout_fn
 
         self.state = FSMState.WAITING
         self.wall: Wall | None = None
@@ -159,11 +164,67 @@ class GameState:
         self._pending_from_seat: int = 0
         self._claims: dict[int, dict] = {}     # seat -> claim action
         self._claims_received: int = 0
+        self._claim_options: dict[int, list[str]] = {}
         self._no_claim_next_seat: int | None = None
         self._no_claim_quad_draw_seat: int | None = None
 
         # Quad supplement tracking
         self._quad_supplement_seat: int = 0
+
+        # Monotonic IDs make late client messages harmless, while wall-clock
+        # deadlines are sent to clients for reconnect-safe display.
+        self.turn_id = 0
+        self.turn_deadline_at: float | None = None
+        self.window_id = 0
+        self.window_deadline_at: float | None = None
+        self._timeout_task: asyncio.Task | None = None
+
+    def _cancel_timeout(self) -> None:
+        task = self._timeout_task
+        self._timeout_task = None
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+        self.turn_deadline_at = None
+        self.window_deadline_at = None
+
+    def _open_turn_clock(self, seconds: float = 60.0) -> None:
+        self._cancel_timeout()
+        self.turn_id += 1
+        self.turn_deadline_at = time.time() + seconds
+        if self.timeout_fn:
+            self._timeout_task = asyncio.create_task(self._timeout_after('turn', self.turn_id, seconds))
+
+    def _open_claim_clock(self, seconds: float) -> None:
+        self._cancel_timeout()
+        self.window_id += 1
+        self.window_deadline_at = time.time() + seconds
+        if self.timeout_fn:
+            self._timeout_task = asyncio.create_task(self._timeout_after('claim', self.window_id, seconds))
+
+    async def _timeout_after(self, kind: str, serial: int, seconds: float) -> None:
+        try:
+            await asyncio.sleep(seconds)
+            if self.timeout_fn:
+                await self.timeout_fn(kind, serial)
+        except asyncio.CancelledError:
+            return
+
+    async def timeout(self, kind: str, serial: int) -> None:
+        """Apply a timeout only if its serial still names the live phase."""
+        if kind == 'turn' and self.state == FSMState.PLAYER_TURN and serial == self.turn_id:
+            p = self.players[self.current_seat]
+            self._cancel_timeout()
+            await self.broadcast({'type': 'turn_timeout', 'seat': self.current_seat, 'turn_id': serial})
+            if p.hand:
+                await self._do_discard(self.current_seat, p.hand[-1], False)
+        elif kind == 'claim' and self.state == FSMState.AWAIT_CLAIMS and serial == self.window_id:
+            self._cancel_timeout()
+            await self.broadcast({'type': 'claim_timeout', 'window_id': serial})
+            for seat in range(self.num_players):
+                if seat != self._pending_from_seat and seat not in self._claims:
+                    self._claims[seat] = {'claim': 'skip'}
+                    self._claims_received += 1
+            await self._resolve_claims_phase()
 
     # ------------------------------------------------------------------
     # Entry points
@@ -199,6 +260,7 @@ class GameState:
     # ------------------------------------------------------------------
 
     async def _deal(self) -> None:
+        self._cancel_timeout()
         self.state = FSMState.DEALING
         self.wall = Wall(seed=self._seed)
 
@@ -242,6 +304,7 @@ class GameState:
 
         p = self.players[seat]
         p.draw(tile)
+        self._open_turn_clock()
 
         await self.broadcast({
             'type': 'tile_drawn',
@@ -259,9 +322,11 @@ class GameState:
             'redraw_eligible': 'redraw' in options,
             'pass_count': p.pass_count,
             'straight_triplet_count': p.straight_triplet_count,
+            'turn_id': self.turn_id,
+            'deadline_at_ms': int(self.turn_deadline_at * 1000),
         })
 
-        # Bots act immediately
+        # Let bot discards remain visible before advancing the turn.
         if p.is_bot:
             from bots.base import Bot
             bot: Bot = p._bot  # type: ignore
@@ -269,6 +334,8 @@ class GameState:
             view['options'] = options
             action = bot.decide_turn(view)
             await self._debug_log(f"{p.name} turn hand={view['hand']} options={options} action={action}")
+            if _action_name(action.get('action') or action.get('type')) == 'discard':
+                await asyncio.sleep(0.5)
             await self.handle_player_action(seat, action)
 
     def _compute_turn_options(self, p: PlayerState, drawn_tile: Tile) -> list[str]:
@@ -317,6 +384,9 @@ class GameState:
             if tile is None:
                 await self.send(seat, {'type': 'error', 'message': f'Tile {tile_str} not in hand'})
                 return
+            if p.has_declared_wait and not self._discard_keeps_wait(p, tile):
+                await self.send(seat, {'type': 'error', 'message': 'Discard would break declared-wait hand'})
+                return
             await self._do_discard(seat, tile, face_down)
 
         elif act == 'tsumo':
@@ -348,19 +418,25 @@ class GameState:
             await self._do_redraw(seat, tile)
 
         elif act == DECLARE_WAIT:
-            if not self._is_concealed(p) or not self._can_declare_wait(p):
+            tile_str = action.get('tile')
+            tile = next((t for t in p.hand if tile_to_str(t) == tile_str), None)
+            # Bots may omit the tile; the drawn tile is their safe atomic discard.
+            if tile is None and p.is_bot:
+                tile = p.hand[-1] if p.hand else None
+            if tile is None or not self._is_concealed(p):
                 await self.send(seat, {'type': 'error', 'message': 'Cannot declare wait'})
                 return
+            hand_after = list(p.hand)
+            hand_after.remove(tile)
+            declared_waits = waits(hand_after, p.calls)
+            if not declared_waits:
+                await self.send(seat, {'type': 'error', 'message': 'Discard must leave a waiting hand'})
+                return
             p.has_declared_wait = True
-            await self.broadcast({'type': 'wait_declared', 'seat': seat})
-            if p.is_bot:
-                from bots.base import Bot
-                bot: Bot = p._bot  # type: ignore
-                action = bot.decide_turn(self._build_view(seat))
-                await self._debug_log(f"{p.name} after declare_wait action={action}")
-                await self.handle_player_action(seat, action)
-            # Fall through to discard (player still needs to discard after declaring wait)
-            # The client will prompt for a discard next
+            p.declared_waits = list(declared_waits)
+            await self.broadcast({'type': 'wait_declared', 'seat': seat,
+                                  'waits': [tile_to_str(t) for t in declared_waits]})
+            await self._do_discard(seat, tile, False)
 
         else:
             await self.send(seat, {'type': 'error', 'message': f'Unknown action: {act}'})
@@ -371,6 +447,10 @@ class GameState:
 
     async def _do_discard(self, seat: int, tile: Tile, face_down: bool) -> None:
         p = self.players[seat]
+
+        if p.has_declared_wait and not self._discard_keeps_wait(p, tile):
+            await self.send(seat, {'type': 'error', 'message': 'Discard would break declared-wait hand'})
+            return
 
         # Validate rang_guo legality
         if face_down:
@@ -414,8 +494,10 @@ class GameState:
         self._pending_from_seat = from_seat
         self._claims = {}
         self._claims_received = 0
+        self._claim_options = {}
         self._no_claim_next_seat = no_claim_next_seat
         self._no_claim_quad_draw_seat = None
+        self._open_claim_clock(5.0)
 
         # Notify each other player of their options
         bot_claims: list[tuple[int, dict]] = []
@@ -457,6 +539,8 @@ class GameState:
                 self._claims_received += 1
                 continue
 
+            self._claim_options[s] = options
+
             await self.send(s, {
                 'type': 'claim_window',
                 'tile': tile_to_str(tile),
@@ -465,6 +549,8 @@ class GameState:
                 'pass_count': p.pass_count,
                 'straight_triplet_count': p.straight_triplet_count,
                 'deadline_ms': 5000,
+                'window_id': self.window_id,
+                'deadline_at_ms': int(self.window_deadline_at * 1000),
             })
 
             if p.is_bot:
@@ -486,6 +572,7 @@ class GameState:
         # waiting, we wait for their claim or the timeout.
 
     async def _resolve_claims_phase(self) -> None:
+        self._cancel_timeout()
         from_seat = self._pending_from_seat
         tile = self._pending_discard
         resolution = resolve_claims(tile, from_seat, self._claims, self.num_players)
@@ -623,6 +710,7 @@ class GameState:
         # After triplet/straight call: player must discard
         self.current_seat = seat
         self.state = FSMState.PLAYER_TURN
+        self._open_turn_clock()
         options = ['discard']
 
         await self.send(seat, {
@@ -632,6 +720,8 @@ class GameState:
             'redraw_eligible': False,
             'pass_count': p.pass_count,
             'straight_triplet_count': p.straight_triplet_count,
+            'turn_id': self.turn_id,
+            'deadline_at_ms': int(self.turn_deadline_at * 1000),
         })
 
         if p.is_bot:
@@ -641,6 +731,8 @@ class GameState:
             view['options'] = options
             discard_action = bot.decide_turn(view)
             await self._debug_log(f"{p.name} after call hand={view['hand']} options={options} action={discard_action}")
+            if _action_name(discard_action.get('action') or discard_action.get('type')) == 'discard':
+                await asyncio.sleep(0.5)
             await self.handle_player_action(seat, discard_action)
 
     # ------------------------------------------------------------------
@@ -683,8 +775,10 @@ class GameState:
         self._pending_from_seat = quad_seat
         self._claims = {}
         self._claims_received = 0
+        self._claim_options = {}
         self._no_claim_next_seat = None
         self._no_claim_quad_draw_seat = quad_seat
+        self._open_claim_clock(3.0)
 
         bot_claims = []
         for s in range(self.num_players):
@@ -701,7 +795,10 @@ class GameState:
                 'from_seat': quad_seat,
                 'your_options': options,
                 'deadline_ms': 3000,
+                'window_id': self.window_id,
+                'deadline_at_ms': int(self.window_deadline_at * 1000),
             })
+            self._claim_options[s] = options
 
             if p.is_bot:
                 from bots.base import Bot
@@ -740,6 +837,7 @@ class GameState:
 
         self.state = FSMState.PLAYER_TURN
         self.current_seat = seat
+        self._open_turn_clock()
 
         await self.send(seat, {
             'type': 'your_turn',
@@ -748,6 +846,8 @@ class GameState:
             'redraw_eligible': False,
             'pass_count': p.pass_count,
             'straight_triplet_count': p.straight_triplet_count,
+            'turn_id': self.turn_id,
+            'deadline_at_ms': int(self.turn_deadline_at * 1000),
         })
 
         if p.is_bot:
@@ -757,6 +857,8 @@ class GameState:
             view['options'] = options
             action = bot.decide_turn(view)
             await self._debug_log(f"{p.name} quad draw hand={view['hand']} options={options} action={action}")
+            if _action_name(action.get('action') or action.get('type')) == 'discard':
+                await asyncio.sleep(0.5)
             await self.handle_player_action(seat, action)
 
     # ------------------------------------------------------------------
@@ -783,6 +885,7 @@ class GameState:
     # ------------------------------------------------------------------
 
     async def _end_hand(self, result) -> None:
+        self._cancel_timeout()
         self.state = FSMState.HAND_END
 
         winners_payload = []
@@ -810,8 +913,12 @@ class GameState:
         })
 
         self.state = FSMState.MATCH_END
+        if self.hand_complete_fn:
+            await self.hand_complete_fn({'type': 'hand_result', 'winners': winners_payload,
+                                         'payments': {str(k): v for k, v in result.payments.items()}})
 
     async def _exhaustive_draw(self) -> None:
+        self._cancel_timeout()
         self.state = FSMState.EXHAUSTIVE_DRAW
 
         result = settle_exhaustive_draw(
@@ -833,6 +940,9 @@ class GameState:
             'payments': {str(k): v for k, v in result.payments.items()},
         })
         self.state = FSMState.MATCH_END
+        if self.hand_complete_fn:
+            await self.hand_complete_fn({'type': 'draw_result', 'tenpai_seats': tenpai,
+                                         'payments': {str(k): v for k, v in result.payments.items()}})
 
     # ------------------------------------------------------------------
     # Helpers
@@ -854,6 +964,13 @@ class GameState:
                 return True
         return False
 
+    def _discard_keeps_wait(self, p: PlayerState, tile: Tile) -> bool:
+        if not p.has_declared_wait or tile not in p.hand:
+            return True
+        hand = list(p.hand)
+        hand.remove(tile)
+        return set(waits(hand, p.calls)) == set(p.declared_waits)
+
     def _self_quad_keeps_wait(self, p: PlayerState, tile: Tile, is_added: bool) -> bool:
         hand = list(p.hand)
         calls = list(p.calls)
@@ -864,14 +981,16 @@ class GameState:
             for i, call in enumerate(calls):
                 if call.call_type == CallType.TRIPLET and call.tiles[0] == tile:
                     calls[i] = Call(CallType.QUAD, [tile] * 4)
-                    return bool(waits(hand, calls))
+                    result = waits(hand, calls)
+                    return set(result) == set(p.declared_waits) if p.has_declared_wait else bool(result)
             return False
 
         if hand.count(tile) < 4:
             return False
         for _ in range(4):
             hand.remove(tile)
-        return bool(waits(hand, calls + [Call(CallType.CONCEALED_QUAD, [tile] * 4)]))
+        result = waits(hand, calls + [Call(CallType.CONCEALED_QUAD, [tile] * 4)])
+        return set(result) == set(p.declared_waits) if p.has_declared_wait else bool(result)
 
     def _direct_quad_keeps_wait(self, p: PlayerState, tile: Tile) -> bool:
         hand = list(p.hand)
@@ -879,7 +998,8 @@ class GameState:
             return False
         for _ in range(3):
             hand.remove(tile)
-        return bool(waits(hand, p.calls + [Call(CallType.QUAD, [tile] * 4)]))
+        result = waits(hand, p.calls + [Call(CallType.QUAD, [tile] * 4)])
+        return set(result) == set(p.declared_waits) if p.has_declared_wait else bool(result)
 
     def _all_visible_tiles(self) -> list[Tile]:
         visible = []
@@ -899,7 +1019,7 @@ class GameState:
                 continue
             op = self.players[s]
             others.append({
-                'seat': s,
+                'seat': s, 'name': op.name, 'is_bot': op.is_bot,
                 'hand_count': len(op.hand),
                 'calls': [str(c) for c in op.calls],
                 'river': [tile_to_str(t) if not fd else None
@@ -917,6 +1037,64 @@ class GameState:
             'others': others,
             'wall_count': self.wall.remaining() if self.wall else 0,
             'current_seat': self.current_seat,
+            'turn_id': self.turn_id,
+            'turn_deadline_at_ms': int(self.turn_deadline_at * 1000) if self.turn_deadline_at else None,
+            'window_id': self.window_id,
+            'window_deadline_at_ms': int(self.window_deadline_at * 1000) if self.window_deadline_at else None,
+        }
+
+    def snapshot(self, seat: int) -> dict:
+        """Complete reconnect view without revealing opponents' concealed hands."""
+        view = self._build_view(seat)
+        p = self.players[seat]
+        if self.state == FSMState.PLAYER_TURN and seat == self.current_seat and p.hand:
+            legal_options = self._compute_turn_options(p, p.hand[-1])
+        elif self.state == FSMState.AWAIT_CLAIMS and seat != self._pending_from_seat:
+            legal_options = self._claim_options.get(seat, ['skip'])
+        else:
+            legal_options = []
+        players = []
+        for op in self.players:
+            players.append({
+                'seat': op.seat,
+                'name': op.name,
+                'is_bot': op.is_bot,
+                'score': op.score,
+                'hand_count': len(op.hand),
+                'calls': [str(c) for c in op.calls],
+                'river': [tile_to_str(t) if not fd else None
+                          for t, fd in zip(op.river, op.river_face_down)],
+                'pass_count': op.pass_count,
+                'straight_triplet_count': op.straight_triplet_count,
+                'has_declared_wait': op.has_declared_wait,
+            })
+        return {
+            'state': self.state.name,
+            'dealer': self.dealer,
+            'current_seat': self.current_seat,
+            'wall': self.wall.snapshot() if self.wall else None,
+            'players': players,
+            'scores': {str(op.seat): op.score for op in self.players},
+            'rivers': {str(op.seat): [tile_to_str(t) if not fd else None
+                                      for t, fd in zip(op.river, op.river_face_down)]
+                       for op in self.players},
+            'calls': {str(op.seat): [str(c) for c in op.calls] for op in self.players},
+            'your_seat': seat,
+            'your_hand': [tile_to_str(t) for t in p.hand],
+            'your_calls': view['calls'],
+            'your_river': view['river'],
+            'pass_count': p.pass_count,
+            'straight_triplet_count': p.straight_triplet_count,
+            'has_declared_wait': p.has_declared_wait,
+            'legal_options': legal_options,
+            'drawn_tile': tile_to_str(p.hand[-1]) if self.state == FSMState.PLAYER_TURN and seat == self.current_seat and p.hand else None,
+            'claim_tile': tile_to_str(self._pending_discard) if self._pending_discard else None,
+            'claim_from_seat': self._pending_from_seat if self.state == FSMState.AWAIT_CLAIMS else None,
+            'turn_id': self.turn_id,
+            'turn_deadline_at_ms': view['turn_deadline_at_ms'],
+            'window_id': self.window_id,
+            'window_deadline_at_ms': view['window_deadline_at_ms'],
+            'waits': [tile_to_str(t) for t in p.declared_waits],
         }
 
     async def _debug_log(self, message: str) -> None:

@@ -1,4 +1,5 @@
 export type MessageHandler = (msg: unknown) => void
+import type { ClientMessage } from '../protocol/messages'
 
 let _ws: WebSocket | null = null
 const _handlers: MessageHandler[] = []
@@ -28,7 +29,7 @@ export function connect(url: string): void {
   })
 }
 
-export function send(msg: unknown): void {
+export function send(msg: ClientMessage): void {
   if (_ws && _ws.readyState === WebSocket.OPEN) {
     _ws.send(JSON.stringify(msg))
   }

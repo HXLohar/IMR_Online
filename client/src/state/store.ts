@@ -35,12 +35,16 @@ export interface GameStore {
   // Turn options
   myTurnOptions: string[]
   drawnTile: string | null
+  turnId: number | null
+  turnDeadlineAt: number | null
   quickDiscardEnabled: boolean
 
   // Claim window
   claimOptions: string[]
   claimTile: string | null
   claimFromSeat: number | null
+  claimWindowId: number | null
+  claimDeadlineAt: number | null
 
   // Result
   lastResult: unknown | null
@@ -65,10 +69,14 @@ export const store: GameStore = {
   currentSeat: 0,
   myTurnOptions: [],
   drawnTile: null,
+  turnId: null,
+  turnDeadlineAt: null,
   quickDiscardEnabled: true,
   claimOptions: [],
   claimTile: null,
   claimFromSeat: null,
+  claimWindowId: null,
+  claimDeadlineAt: null,
   lastResult: null,
   calledRiverTiles: {},
 }

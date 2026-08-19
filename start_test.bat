@@ -1,3 +1,4 @@
-cd C:\Users\rapid\Documents\GitHub\IMR_Online\server
-py -m pytest
+@echo off
+cd /d "%~dp0"
+python -m pytest
 pause

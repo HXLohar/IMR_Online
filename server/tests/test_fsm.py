@@ -1,6 +1,7 @@
 """Tests for game/fsm.py — focuses on resolve_claims (pure function)."""
 import asyncio
 import pytest
+from game import fsm
 from game.fsm import FSMState, GameState, resolve_claims, ClaimResolution
 from game.player_state import PlayerState
 from game.tiles import tile_from_str as T, tiles_from_str as tiles
@@ -151,6 +152,37 @@ class FakeWall:
 
     def remaining(self):
         return len(self.draw_tiles)
+
+
+def test_bot_discard_waits_half_a_second(monkeypatch):
+    class DiscardBot:
+        def decide_turn(self, view):
+            return {'type': 'discard', 'tile': view['hand'][-1]}
+
+    async def noop(*args):
+        pass
+
+    delays = []
+
+    async def fake_sleep(seconds):
+        delays.append(seconds)
+
+    player = PlayerState(seat=0, name='Bot', is_bot=True)
+    player.hand = tiles('123b456c789d1122c')
+    player._bot = DiscardBot()
+    game = GameState([player], noop, noop)
+    game.wall = FakeWall([T('9b')])
+
+    async def capture_action(seat, action):
+        assert seat == 0
+        assert action['type'] == 'discard'
+
+    game.handle_player_action = capture_action
+    monkeypatch.setattr(fsm.asyncio, 'sleep', fake_sleep)
+
+    asyncio.run(game._begin_player_turn(0))
+
+    assert delays == [0.5]
 
 
 def test_redraw_discards_opens_claims_then_draws_for_same_player():

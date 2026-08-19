@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "imr-online-server"
@@ -15,6 +15,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "httpx"]
+
+[tool.setuptools]
+py-modules = ["app", "db", "multiplayer"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["bots*", "game*", "protocol*", "scoring*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

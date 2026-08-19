@@ -3,7 +3,7 @@ Tile wall: shuffle, deal, draw, quad supplement.
 Step 1 has no dora indicators — the wall is simply 136 tiles.
 """
 import random
-from game.tiles import ALL_TILES, Tile
+from game.tiles import ALL_TILES, Tile, tile_to_str
 
 FULL_WALL_SIZE = 136  # 34 types × 4 copies
 
@@ -58,3 +58,11 @@ class Wall:
             if t:
                 hands[seat].append(t)
         return hands
+
+    def snapshot(self) -> dict:
+        """Serializable wall state for reconnecting clients."""
+        return {
+            'draw_ptr': self._draw_ptr,
+            'supplement_ptr': self._supp_ptr,
+            'remaining': self.remaining(),
+        }

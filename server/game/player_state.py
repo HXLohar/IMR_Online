@@ -19,6 +19,7 @@ class PlayerState:
     pass_count: int = 0        # number of rang_guo (face-down discards)
     straight_triplet_count: int = 0   # straight + triplet calls (quad excluded)
     has_declared_wait: bool = False
+    declared_waits: list[Tile] = field(default_factory=list)
     is_ready: bool = False     # game-start ready
 
     score: int = 0             # running total across hands (not yet used in Step 1)
@@ -79,3 +80,4 @@ class PlayerState:
         self.pass_count = 0
         self.straight_triplet_count = 0
         self.has_declared_wait = False
+        self.declared_waits.clear()

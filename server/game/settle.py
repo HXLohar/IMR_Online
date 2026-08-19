@@ -68,8 +68,7 @@ def meets_threshold(
     """
     if (
         os.getenv('IMR_DISABLE_WIN_THRESHOLD') == '1'
-        or os.getenv('PYTEST_CURRENT_TEST')
-        or os.getenv('IMR_WIN_THRESHOLD_MODE', 'test') == 'test'
+        or os.getenv('IMR_WIN_THRESHOLD_MODE') == 'test'
         or os.getenv('IMR_MIN_WIN_SCORE') == '0'
     ):
         return True
