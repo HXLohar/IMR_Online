@@ -1825,7 +1825,10 @@ def check_406_mirrored_tiles(explanation: HandExplanation) -> bool:
 
     # Each group in suit0 must have matching group in suit1
     def get_group_signature(g: Group) -> Tuple[str, Tuple[int, ...]]:
-        return (g.group_type, tuple(sorted(t.value for t in g.tiles)))
+        # A quad contains the same three-tile pattern as a triplet.  The
+        # mirrored-tiles fan compares the pattern, not the exposed count.
+        group_type = 'triplet' if g.group_type in ('triplet', 'quad') else g.group_type
+        return (group_type, tuple(sorted(t.value for t in g.tiles))[:3])
 
     sigs0 = sorted([get_group_signature(g) for g in groups0])
     sigs1 = sorted([get_group_signature(g) for g in groups1])

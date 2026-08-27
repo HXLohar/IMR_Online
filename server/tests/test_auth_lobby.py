@@ -58,7 +58,9 @@ def test_http_auth_round_trip(tmp_path, monkeypatch):
 
     monkeypatch.setattr(db, 'DB_PATH', tmp_path / 'http.sqlite3')
     with TestClient(app) as client:
+        assert client.get('/healthz').json() == {'status': 'ok'}
         assert client.get('/').status_code == 200
+        assert client.get('/auth-hero.png').status_code == 200
         registered = client.post('/api/auth/register', json={'username': 'web_user', 'password': 'long enough password'})
         assert registered.status_code == 200
         assert client.get('/api/me').status_code == 200

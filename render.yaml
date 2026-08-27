@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: imr-online
+    runtime: python
+    plan: starter
+    buildCommand: pip install -e "server[dev]" && npm --prefix client ci && npm --prefix client run build
+    startCommand: cd server && uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: IMR_DB_PATH
+        value: /var/data/imr.sqlite3
+      - key: IMR_SECURE_COOKIE
+        value: "true"
+      - key: IMR_WIN_THRESHOLD_MODE
+        value: production
+    disk:
+      name: imr-data
+      mountPath: /var/data
+      sizeGB: 1

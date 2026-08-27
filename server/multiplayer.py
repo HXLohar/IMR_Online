@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import secrets
 import time
 import uuid
@@ -125,6 +126,9 @@ class Match:
 
     async def _hand_complete(self, result: dict) -> None:
         if self.hand_no < self.length:
+            pause = max(0.0, float(os.getenv('IMR_HAND_PAUSE_SECONDS', '8')))
+            if pause:
+                await asyncio.sleep(pause)
             self.hand_no += 1
             self.seed = secrets.randbits(64)
             self.game._seed = self.seed

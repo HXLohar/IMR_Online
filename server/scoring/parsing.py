@@ -284,7 +284,9 @@ def parse_hand(input_str: str) -> Tuple[Optional[ParsedHand], str]:
         return None, "Missing winning tile (needs '+' separator)"
     hand_part = parts[0].strip()
     winning_part = parts[1].strip()
-    additional_notes = ('+' + '+'.join(parts[2:])).strip() if len(parts) > 2 else ""
+    # CSV examples commonly write flags as ``+ AQ``; normalize them once so
+    # every checker sees the same protocol token (``+AQ``).
+    additional_notes = ('+' + '+'.join(parts[2:])).replace(' ', '').strip() if len(parts) > 2 else ""
     is_self_drawn = winning_part.endswith('*')
     if is_self_drawn:
         winning_part = winning_part[:-1].strip()

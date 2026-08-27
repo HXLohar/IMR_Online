@@ -12,6 +12,11 @@ function clearEl(id: string): void {
 export function makeTile(tile: string | null, classes: string[] = []): HTMLElement {
   const div = document.createElement('div')
   div.className = ['tile', ...classes].join(' ')
+  if (classes.includes('clickable')) {
+    div.tabIndex = 0
+    div.role = 'button'
+    div.ariaLabel = tile ? `選取 ${tile}` : '背面牌'
+  }
   const img = document.createElement('img')
   if (tile === null) {
     div.classList.add('face-down')
@@ -73,24 +78,34 @@ function renderCall(callStr: string): HTMLElement {
 export function renderBoard(): void {
   el('wall-counter').textContent = `牌牆: ${store.wallCount}`
 
-  const names: Record<number, string> = {}
-  for (const p of store.players) names[p.seat] = p.name
-  const curName = names[store.currentSeat] ?? `Seat ${store.currentSeat}`
-  el('current-seat-label').textContent = `當前出牌: ${curName}`
+  const current = playerAt(store.currentSeat)
+  const curName = current?.name ?? `座位 ${store.currentSeat}`
+  el('round-label').textContent = `第 ${store.handNo}/${store.totalHands} 局 · 莊家：${seatLabel(store.dealer)}`
+  el('current-seat-label').textContent = `當前出牌：${seatLabel(store.currentSeat)} · ${curName}`
+  const deadline = store.claimDeadlineAt ?? (store.currentSeat === store.mySeat ? store.turnDeadlineAt : null)
+  const remaining = deadline ? Math.max(0, Math.ceil((deadline - Date.now()) / 1000)) : 0
+  el('deadline-label').textContent = remaining ? `倒數 ${remaining} 秒` : ''
 
   const badge = el('declare-wait-badge') as HTMLElement
   badge.style.display = store.hasDeclaredWait ? 'inline' : 'none'
 
-  for (let seat = 0; seat < 4; seat++) {
-    renderRiver(seat)
-    if (seat !== store.mySeat) renderCalls(seat)
+  const positions = [
+    { section: 'opp-top', river: 'river-2', calls: 'calls-2', relative: 2 },
+    { section: 'opp-left', river: 'river-3', calls: 'calls-3', relative: 3 },
+    { section: 'opp-right', river: 'river-1', calls: 'calls-1', relative: 1 },
+  ]
+  for (const position of positions) {
+    const seat = (store.mySeat + position.relative) % 4
+    el(position.section).querySelector('.section-label')!.textContent = playerSummary(seat, seatLabel(seat))
+    renderRiver(seat, position.river)
+    renderCalls(seat, position.calls)
   }
 
+  el('player-area').querySelector('.section-label')!.childNodes[0].textContent = playerSummary(store.mySeat, '自家')
   renderHand()
 }
 
-function renderRiver(seat: number): void {
-  const riverId = `river-${seat}`
+function renderRiver(seat: number, riverId: string): void {
   clearEl(riverId)
   const river = seat === store.mySeat
     ? store.river
@@ -104,14 +119,35 @@ function renderRiver(seat: number): void {
   })
 }
 
-function renderCalls(seat: number): void {
-  const callsId = `calls-${seat}`
+function renderCalls(seat: number, callsId: string): void {
   clearEl(callsId)
-  const calls = store.others[seat]?.calls ?? []
+  const calls = seat === store.mySeat ? store.calls : (store.others[seat]?.calls ?? [])
 
   for (const callStr of calls) {
     el(callsId).appendChild(renderCall(callStr))
   }
+}
+
+function playerAt(seat: number): { name?: string; score?: number; connected?: boolean; is_bot?: boolean; hand_count?: number } | undefined {
+  if (seat === store.mySeat) {
+    const mine = store.players.find((p) => p.seat === seat)
+    return { name: mine?.name ?? store.myName, score: mine?.score ?? 0, connected: true, is_bot: mine?.is_bot, hand_count: store.hand.length }
+  }
+  return store.others[seat]
+}
+
+function playerSummary(seat: number, relation: string): string {
+  const player = playerAt(seat)
+  if (!player) return `${relation} · 等待玩家`
+  const connection = player.is_bot || player.connected !== false ? '已連線' : '離線'
+  const handCount = seat === store.mySeat ? store.hand.length : player.hand_count ?? 0
+  const wind = ['東', '南', '西', '北'][seat] ?? `座位 ${seat}`
+  return `${wind}家（${relation}） · ${player.name ?? `座位 ${seat}`} · ${player.score ?? 0} 分 · 手牌 ${handCount} 張 · ${connection}`
+}
+
+function seatLabel(seat: number): string {
+  const relative = (seat - store.mySeat + 4) % 4
+  return ['自家', '下家', '對家', '上家'][relative] ?? `座位 ${seat}`
 }
 
 function renderHand(): void {
@@ -150,6 +186,10 @@ function renderHand(): void {
 export function setStatus(msg: string): void {
   el('status-bar').textContent = msg
 }
+
+window.setInterval(() => {
+  if (store.phase === 'playing') renderBoard()
+}, 250)
 
 const _logBuffer: string[] = []
 

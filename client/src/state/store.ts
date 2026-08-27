@@ -4,6 +4,8 @@ export interface OtherPlayer {
   seat: number
   name: string
   is_bot: boolean
+  connected: boolean
+  score: number
   hand_count: number
   calls: string[]
   river: (string | null)[]     // null = face-down
@@ -12,11 +14,20 @@ export interface OtherPlayer {
   hasDeclaredWait: boolean
 }
 
+export interface PlayerInfo {
+  seat: number
+  user_id?: number | null
+  name: string
+  is_bot: boolean
+  connected?: boolean
+  score?: number
+}
+
 export interface GameStore {
   phase: 'connecting' | 'lobby' | 'playing' | 'ended'
   mySeat: number
   myName: string
-  players: { seat: number; name: string; is_bot: boolean }[]
+  players: PlayerInfo[]
 
   // My state
   hand: string[]
@@ -31,6 +42,9 @@ export interface GameStore {
 
   wallCount: number
   currentSeat: number
+  dealer: number
+  handNo: number
+  totalHands: number
 
   // Turn options
   myTurnOptions: string[]
@@ -67,6 +81,9 @@ export const store: GameStore = {
   others: {},
   wallCount: 0,
   currentSeat: 0,
+  dealer: 0,
+  handNo: 1,
+  totalHands: 1,
   myTurnOptions: [],
   drawnTile: null,
   turnId: null,

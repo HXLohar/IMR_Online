@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -55,6 +56,15 @@ def request_user(request: Request) -> dict:
     return user
 
 
+def secure_cookie() -> bool:
+    return os.getenv('IMR_SECURE_COOKIE', '').lower() in {'1', 'true', 'yes', 'on'}
+
+
+@app.get('/healthz')
+async def healthz():
+    return {'status': 'ok'}
+
+
 @app.on_event('startup')
 async def startup() -> None:
     init_db()
@@ -72,7 +82,7 @@ async def register(body: Credentials):
     response = {'user': user}
     from fastapi.responses import JSONResponse
     out = JSONResponse(response)
-    out.set_cookie('imr_session', token, httponly=True, samesite='lax', max_age=30 * 86400)
+    out.set_cookie('imr_session', token, httponly=True, secure=secure_cookie(), samesite='lax', max_age=30 * 86400)
     return out
 
 
@@ -84,7 +94,7 @@ async def login(body: Credentials):
     token = create_session(user['id'])
     from fastapi.responses import JSONResponse
     out = JSONResponse({'user': user})
-    out.set_cookie('imr_session', token, httponly=True, samesite='lax', max_age=30 * 86400)
+    out.set_cookie('imr_session', token, httponly=True, secure=secure_cookie(), samesite='lax', max_age=30 * 86400)
     return out
 
 
@@ -214,6 +224,12 @@ dist_index = Path(__file__).parent.parent / 'client' / 'dist' / 'index.html'
 if dist_index.exists():
     app.mount('/assets', StaticFiles(directory=dist_index.parent / 'assets'), name='assets')
     app.mount('/tiles', StaticFiles(directory=dist_index.parent / 'tiles'), name='tiles')
+
+    auth_hero = dist_index.parent / 'auth-hero.png'
+    if auth_hero.exists():
+        @app.get('/auth-hero.png')
+        async def auth_hero_file():
+            return FileResponse(auth_hero)
 
     @app.get('/')
     async def index():

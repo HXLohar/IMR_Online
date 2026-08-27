@@ -44,3 +44,5 @@ npm run dev --prefix client
 ## 環境變數
 
 Alpha 的資料庫預設使用 `server/imr.sqlite3`。正式環境可在啟動前設定 `IMR_DB_PATH` 指向其他 SQLite 檔案；未設定時使用預設值。
+
+正式部署另設定 `IMR_SECURE_COOKIE=true`，並以 `/healthz` 作為服務健康檢查。`IMR_WIN_THRESHOLD_MODE=test`、`IMR_DISABLE_WIN_THRESHOLD=1`、`IMR_HAND_PAUSE_SECONDS=0` 與 `IMR_BOT_DELAY_SECONDS=0` 僅供測試／smoke 使用；Render Blueprint 已列出持久磁碟與正式門檻設定。

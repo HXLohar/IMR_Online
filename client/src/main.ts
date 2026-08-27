@@ -63,7 +63,7 @@ function connectLobby(): void {
 
 function showLobby(): void {
   showScreen('lobby')
-  ui('lobby-user').textContent = activeUser ? `Signed in as ${activeUser.username}` : ''
+  ui('lobby-user').textContent = activeUser ? `目前登入：${activeUser.username}` : ''
 }
 
 function applyMatchSnapshot(snapshot: Record<string, unknown>): void {
@@ -73,13 +73,18 @@ function applyMatchSnapshot(snapshot: Record<string, unknown>): void {
   for (const other of players) {
     if (other.seat === mySeat) continue
     others[other.seat] = {
-      seat: other.seat, name: other.name ?? `Seat ${other.seat}`, is_bot: other.is_bot ?? false,
+      seat: other.seat, name: other.name ?? `座位 ${other.seat}`, is_bot: other.is_bot ?? false,
+      connected: other.connected ?? true, score: other.score ?? 0,
       hand_count: other.hand_count ?? 0, calls: other.calls ?? [], river: other.river ?? [],
       pass_count: other.pass_count ?? 0, straightTripletCount: other.straight_triplet_count ?? 0,
       hasDeclaredWait: other.has_declared_wait ?? false,
     }
   }
   const wall = snapshot['wall'] as { remaining?: number } | null
+  const calledRiverTiles: Record<number, number[]> = {}
+  for (const [seat, indexes] of Object.entries((snapshot['called_river_tiles'] as Record<string, number[]>) ?? {})) {
+    calledRiverTiles[Number(seat)] = indexes
+  }
   updateStore({
     phase: 'playing', mySeat, players: players as typeof store.players,
     hand: (snapshot['your_hand'] as string[]) ?? [], calls: (snapshot['your_calls'] as string[]) ?? [],
@@ -88,6 +93,9 @@ function applyMatchSnapshot(snapshot: Record<string, unknown>): void {
     straightTripletCount: (snapshot['straight_triplet_count'] as number) ?? 0,
     hasDeclaredWait: (snapshot['has_declared_wait'] as boolean) ?? false,
     wallCount: wall?.remaining ?? 0, currentSeat: snapshot['current_seat'] as number,
+    dealer: (snapshot['dealer'] as number) ?? 0,
+    handNo: (snapshot['hand'] as number) ?? 1,
+    totalHands: (snapshot['total_hands'] as number) ?? 1,
     myTurnOptions: (snapshot['legal_options'] as string[]) ?? [],
     drawnTile: (snapshot['drawn_tile'] as string | null) ?? null,
     turnId: (snapshot['turn_id'] as number | null) ?? null,
@@ -97,6 +105,7 @@ function applyMatchSnapshot(snapshot: Record<string, unknown>): void {
     claimFromSeat: (snapshot['claim_from_seat'] as number | null) ?? null,
     claimWindowId: (snapshot['window_id'] as number | null) ?? null,
     claimDeadlineAt: (snapshot['window_deadline_at_ms'] as number | null) ?? null,
+    calledRiverTiles,
   })
   showScreen('game')
   render()
@@ -105,14 +114,14 @@ function applyMatchSnapshot(snapshot: Record<string, unknown>): void {
 function renderRooms(rooms: any[]): void {
   const list = ui('room-list')
   list.innerHTML = ''
-  if (!rooms.length) { list.textContent = 'No public rooms'; return }
+  if (!rooms.length) { list.textContent = '目前沒有公開房間'; return }
   for (const room of rooms) {
     const card = document.createElement('div')
     card.className = 'room-card'
     const names = room.seats.map((s: any) => s.name).join(', ')
-    card.innerHTML = `<span>${room.owner_name} · ${room.length} hands<br><small>${names}</small></span>`
+    card.innerHTML = `<span>${room.owner_name} · ${room.length} 局<br><small>${names}</small></span>`
     const button = document.createElement('button')
-    button.textContent = 'Join'
+    button.textContent = '加入'
     button.onclick = () => send({ type: 'join_room', room_id: room.id })
     card.appendChild(button)
     list.appendChild(card)
@@ -122,7 +131,7 @@ function renderRooms(rooms: any[]): void {
 function renderRoom(room: any): void {
   showScreen('room')
   ui('room-id').textContent = room.id
-  ui('room-code').textContent = room.code ? `Invite code: ${room.code}` : 'Public room'
+  ui('room-code').textContent = room.code ? `邀請代碼：${room.code}` : '公開房間'
   ;(ui('config-length') as HTMLSelectElement).value = String(room.length)
   const seats = ui('room-seats')
   seats.innerHTML = ''
@@ -130,11 +139,11 @@ function renderRoom(room: any): void {
     const card = document.createElement('div')
     card.className = 'seat-card'
     const connection = seat.is_bot || seat.connected ? '已連線' : '離線'
-    card.textContent = `Seat ${seat.seat}: ${seat.name} · ${connection}`
+    card.textContent = `座位 ${seat.seat}：${seat.name} · ${connection}`
     if (!seat.user_id && room.owner_id === activeUser?.id && seat.seat > 0) {
       const select = document.createElement('select')
       select.dataset.seat = String(seat.seat)
-      select.innerHTML = '<option value="">Human</option><option value="efficiency">Efficiency AI</option><option value="auto_call">Auto-call AI</option><option value="discard_only">Discard AI</option>'
+      select.innerHTML = '<option value="">真人玩家</option><option value="efficiency">效率 AI</option><option value="auto_call">自動鳴牌 AI</option><option value="discard_only">自動出牌 AI</option>'
       select.value = seat.bot ?? ''
       card.appendChild(select)
     }
@@ -174,7 +183,7 @@ function handleMessage(msg: unknown): void {
     case 'queue_joined': {
       ;(ui('queue-btn') as HTMLButtonElement).style.display = 'none'
       ;(ui('queue-cancel-btn') as HTMLButtonElement).style.display = ''
-      setStatus(`Waiting for players (${m['size']}/4)`)
+      setStatus(`等待牌友加入（${m['size']}/4）`)
       break
     }
     case 'queue_left': {
@@ -183,14 +192,16 @@ function handleMessage(msg: unknown): void {
       break
     }
     case 'match_started': {
-      const players = m['players'] as Array<{ seat: number; user_id: number | null; name: string; is_bot: boolean }>
+      const players = m['players'] as Array<{ seat: number; user_id: number | null; name: string; is_bot: boolean; connected?: boolean; score?: number }>
       const mine = players.find((player) => player.user_id === activeUser?.id)
-      updateStore({ players: players as typeof store.players, mySeat: mine?.seat ?? 0, phase: 'playing' })
+      updateStore({ players: players as typeof store.players, mySeat: mine?.seat ?? 0, phase: 'playing', totalHands: Number(m['length'] ?? 1) })
       showScreen('game')
       break
     }
     case 'next_hand': {
-      addLog(`Hand ${m['hand']} / ${m['total_hands']}`, `Hand ${m['hand']} / ${m['total_hands']}`)
+      document.getElementById('result-overlay')!.classList.add('hidden')
+      updateStore({ handNo: Number(m['hand'] ?? store.handNo + 1), totalHands: Number(m['total_hands'] ?? store.totalHands), dealer: Number(m['dealer'] ?? store.dealer) })
+      addLog(`第 ${m['hand']}/${m['total_hands']} 局`, `Hand ${m['hand']} / ${m['total_hands']}`)
       break
     }
     case 'match_snapshot': {
@@ -209,16 +220,19 @@ function handleMessage(msg: unknown): void {
       break
     }
     case 'match_paused': {
-      setStatus(`Player ${m['seat']} disconnected; waiting ${Math.ceil(m['seconds_left'] as number)}s`)
-      addLog(`Player ${m['seat']} disconnected`, `Player ${m['seat']} disconnected`)
+      updatePlayerStatus(Number(m['seat']), false)
+      setStatus(`${seatLabel(Number(m['seat']))} 已斷線，等待 ${Math.ceil(m['seconds_left'] as number)} 秒`)
+      addLog(`${seatLabel(Number(m['seat']))} 已斷線`, `Player ${m['seat']} disconnected`)
       break
     }
     case 'match_resumed': {
-      setStatus('Match resumed')
+      updatePlayerStatus(Number(m['seat']), true)
+      setStatus('牌局已恢復')
       break
     }
     case 'player_takeover': {
-      addLog(`Player ${m['seat']} is now auto-playing`, `Player ${m['seat']} is now auto-playing`)
+      updatePlayerStatus(Number(m['seat']), true, true)
+      addLog(`${seatLabel(Number(m['seat']))} 改由 AI 代打`, `Player ${m['seat']} is now auto-playing`)
       break
     }
     case 'match_finished': {
@@ -240,20 +254,29 @@ function handleMessage(msg: unknown): void {
           straightTripletCount: 0,
           hasDeclaredWait: false,
           wallCount: m['wall_count'] as number,
+          dealer: Number(m['dealer'] ?? store.dealer),
           myTurnOptions: [],
           others: buildOthers(),
           calledRiverTiles: {},
         })
-        setStatus(`遊戲開始！莊家：Seat ${m['dealer']}`)
-        addLog(`遊戲開始，莊家 Seat ${m['dealer']}，牌牆 ${m['wall_count']} 張`, `Game started, dealer: Seat ${m['dealer']}, wall: ${m['wall_count']} tiles`)
+        setStatus(`遊戲開始！莊家：${seatLabel(Number(m['dealer']))}`)
+        addLog(`遊戲開始，莊家${seatLabel(Number(m['dealer']))}，牌牆 ${m['wall_count']} 張`, `Game started, dealer: Seat ${m['dealer']}, wall: ${m['wall_count']} tiles`)
       }
       render()
       break
     }
 
     case 'tile_drawn': {
-      updateStore({ wallCount: m['wall_count'] as number, currentSeat: m['seat'] as number })
-      addLog(`Seat ${m['seat']} 摸牌，牌牆剩 ${m['wall_count']}`, `Seat ${m['seat']} drew a tile, wall remaining: ${m['wall_count']}`)
+      const drawSeat = m['seat'] as number
+      const drawnOther = store.others[drawSeat]
+      updateStore({
+        wallCount: m['wall_count'] as number,
+        currentSeat: drawSeat,
+        ...(drawSeat !== store.mySeat && drawnOther ? {
+          others: { ...store.others, [drawSeat]: { ...drawnOther, hand_count: drawnOther.hand_count + 1 } },
+        } : {}),
+      })
+      addLog(`${seatLabel(Number(m['seat']))} 摸牌，牌牆剩 ${m['wall_count']}`, `Seat ${m['seat']} drew a tile, wall remaining: ${m['wall_count']}`)
       render()
       break
     }
@@ -302,11 +325,12 @@ function handleMessage(msg: unknown): void {
       } else {
         const other = { ...store.others[seat] }
         other.river = [...(other.river ?? []), faceDown ? null : tile]
+        other.hand_count = Math.max(0, other.hand_count - 1)
         other.pass_count = (m['pass_count'] as number | undefined) ?? other.pass_count + (faceDown ? 1 : 0)
         other.straightTripletCount = straightTripletCountFrom(m, other.straightTripletCount)
         updateStore({ others: { ...store.others, [seat]: other } })
       }
-      addLog(`Seat ${seat} 打出 ${faceDown ? '(让过)' : tile}`, `Seat ${seat} discarded ${faceDown ? '(face-down)' : tile}`)
+      addLog(`${seatLabel(seat)} 打出 ${faceDown ? '（讓過）' : tile}`, `Seat ${seat} discarded ${faceDown ? '(face-down)' : tile}`)
       render()
       break
     }
@@ -329,7 +353,7 @@ function handleMessage(msg: unknown): void {
         turnId: null,
         turnDeadlineAt: null,
       })
-      setStatus(`鳴牌窗口：${m['tile']} from Seat ${m['from_seat']}，截止 ${new Date(m['deadline_at_ms'] as number).toLocaleTimeString()}`)
+      setStatus(`鳴牌窗口：${m['tile']}（${seatLabel(Number(m['from_seat']))}打出），截止 ${new Date(m['deadline_at_ms'] as number).toLocaleTimeString()}`)
       render()
       break
     }
@@ -382,10 +406,12 @@ function handleMessage(msg: unknown): void {
           ? replaceTripletWithUpgradedQuad(other.calls ?? [], tiles)
           : [...(other.calls ?? []), callStr]
         other.pass_count = (m['pass_count'] as number | undefined) ?? other.pass_count
+        const removedFromHand = callType === 'upgraded_quad_declare' ? 1 : isDiscardClaim(callType) ? tiles.length - 1 : tiles.length
+        other.hand_count = Math.max(0, other.hand_count - removedFromHand)
         other.straightTripletCount = straightTripletCountFrom(m, other.straightTripletCount + (callType === 'straight_call' || callType === 'triplet_call' ? 1 : 0))
         updateStore({ others: { ...store.others, [seat]: other } })
       }
-      addLog(`Seat ${seat} ${callType}：${tiles.join('')}`, `Seat ${seat} ${callType}: ${tiles.join('')}`)
+      addLog(`${seatLabel(seat)} ${callLabel(callType)}：${tiles.join('')}`, `Seat ${seat} ${callType}: ${tiles.join('')}`)
       render()
       break
     }
@@ -394,7 +420,7 @@ function handleMessage(msg: unknown): void {
       if ((m['seat'] as number) === store.mySeat) {
         updateStore({ hasDeclaredWait: true })
       }
-      addLog(`Seat ${m['seat']} 宣告报听`, `Seat ${m['seat']} declared wait`)
+      addLog(`${seatLabel(Number(m['seat']))} 宣告報聽`, `Seat ${m['seat']} declared wait`)
       render()
       break
     }
@@ -406,12 +432,18 @@ function handleMessage(msg: unknown): void {
     }
 
     case 'hand_result': {
+      applyScores(m['scores'])
+      updateStore({ lastResult: m })
+      showHandResult(m)
       addLog('和牌結算完成', 'Hand result settled')
       render()
       break
     }
 
     case 'draw_result': {
+      applyScores(m['scores'])
+      updateStore({ lastResult: m })
+      showDrawResult(m)
       addLog('荒牌結算完成', 'Draw result settled')
       render()
       break
@@ -440,9 +472,68 @@ function showMatchResult(m: Record<string, unknown>): void {
   const title = document.getElementById('result-title')!
   const body = document.getElementById('result-body')!
   overlay.classList.remove('hidden')
-  title.textContent = 'Match complete'
+  title.textContent = '對局完成'
+  body.replaceChildren()
   const results = m['results'] as Array<Record<string, unknown>>
-  body.innerHTML = results.map((r) => `<div class="payment-row"><span>${r['name']}</span><span>Rank ${r['rank']} · ${r['score']}</span></div>`).join('')
+  for (const result of results) {
+    const row = document.createElement('div')
+    row.className = 'payment-row'
+    row.textContent = `${result['name']} · 第 ${result['rank']} 名 · ${result['score']} 分`
+    body.appendChild(row)
+  }
+}
+
+function showHandResult(m: Record<string, unknown>): void {
+  const overlay = document.getElementById('result-overlay')!
+  const title = document.getElementById('result-title')!
+  const body = document.getElementById('result-body')!
+  overlay.classList.remove('hidden')
+  title.textContent = '和牌結算'
+  body.replaceChildren()
+  const winners = (m['winners'] as Array<Record<string, unknown>>) ?? []
+  for (const winner of winners) {
+    const row = document.createElement('div')
+    row.className = 'payment-row'
+    const fanNames = ((winner['fans'] as Array<Record<string, unknown>>) ?? [])
+      .map((fan) => fan['name'] ?? fan['id'])
+      .join('、')
+    const hand = ((winner['hand'] as string[]) ?? []).join(' ')
+    const calls = ((winner['calls'] as string[]) ?? []).join(' ')
+    row.textContent = `${seatLabel(Number(winner['seat']))} · ${winner['win_type'] === 'tsumo' ? '自摸' : '榮和'} · ${winner['final_score']} 分 · ${fanNames || '無番種'}${hand ? ` · 手牌 ${hand}` : ''}${calls ? ` · 副露 ${calls}` : ''}`
+    body.appendChild(row)
+  }
+  appendPayments(body, m['payments'])
+}
+
+function showDrawResult(m: Record<string, unknown>): void {
+  const overlay = document.getElementById('result-overlay')!
+  const title = document.getElementById('result-title')!
+  const body = document.getElementById('result-body')!
+  overlay.classList.remove('hidden')
+  title.textContent = '荒牌結算'
+  body.replaceChildren()
+  const tenpai = ((m['tenpai_seats'] as number[]) ?? []).map(seatLabel).join('、') || '無人聽牌'
+  const note = document.createElement('div')
+  note.textContent = `聽牌：${tenpai}`
+  body.appendChild(note)
+  appendPayments(body, m['payments'])
+  const hands = (m['hands'] as Record<string, string[]>) ?? {}
+  const calls = (m['calls'] as Record<string, string[]>) ?? {}
+  for (const [seat, tiles] of Object.entries(hands)) {
+    const row = document.createElement('div')
+    row.textContent = `${seatLabel(Number(seat))} 手牌：${tiles.join(' ')}${calls[seat]?.length ? ` · 副露 ${calls[seat].join(' ')}` : ''}`
+    body.appendChild(row)
+  }
+}
+
+function appendPayments(body: HTMLElement, raw: unknown): void {
+  if (!raw || typeof raw !== 'object') return
+  for (const [seat, payment] of Object.entries(raw as Record<string, number>)) {
+    const row = document.createElement('div')
+    row.className = 'payment-row'
+    row.textContent = `${seatLabel(Number(seat))}：${payment >= 0 ? '+' : ''}${payment}`
+    body.appendChild(row)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -457,6 +548,8 @@ function buildOthers(): typeof store.others {
         seat: p.seat,
         name: p.name,
         is_bot: p.is_bot,
+        connected: p.connected !== false,
+        score: p.score ?? 0,
         hand_count: 13,
         calls: [],
         river: [],
@@ -469,6 +562,30 @@ function buildOthers(): typeof store.others {
   return result
 }
 
+function applyScores(raw: unknown): void {
+  if (!raw || typeof raw !== 'object') return
+  const scores = raw as Record<string, number>
+  updateStore({
+    players: store.players.map((player) => ({ ...player, score: scores[String(player.seat)] ?? player.score ?? 0 })),
+    others: Object.fromEntries(Object.entries(store.others).map(([seat, player]) => [seat, {
+      ...player, score: scores[seat] ?? player.score,
+    }])),
+  })
+}
+
+function updatePlayerStatus(seat: number, connected: boolean, isBot?: boolean): void {
+  updateStore({
+    players: store.players.map((player) => player.seat === seat ? {
+      ...player, connected, is_bot: isBot ?? player.is_bot,
+    } : player),
+    others: {
+      ...store.others,
+      ...(store.others[seat] ? { [seat]: { ...store.others[seat], connected, is_bot: isBot ?? store.others[seat].is_bot } } : {}),
+    },
+  })
+  renderBoard()
+}
+
 function callSourceLabel(callType: string, seat: number, fromSeat: number): string {
   if (callType === 'concealed_quad_declare') return '暗槓'
   if (callType === 'upgraded_quad_declare') return '補槓'
@@ -476,6 +593,17 @@ function callSourceLabel(callType: string, seat: number, fromSeat: number): stri
   const dist = (fromSeat - seat + 4) % 4
   const source = dist === 3 ? '上家' : dist === 2 ? '對家' : '下家'
   return `${name[callType] ?? callType}-${source}`
+}
+
+function callLabel(callType: string): string {
+  const labels: Record<string, string> = {
+    straight_call: '吃',
+    triplet_call: '碰',
+    direct_quad_call: '明槓',
+    concealed_quad_declare: '暗槓',
+    upgraded_quad_declare: '加槓',
+  }
+  return labels[callType] ?? callType
 }
 
 function makeCallStr(callType: string, tiles: string[], seat: number, fromSeat: number, claimedTile: string | null): string {
@@ -540,7 +668,7 @@ function tileRank(tile: string): number {
 
 function seatLabel(seat: number): string {
   const dist = (seat - store.mySeat + 4) % 4
-  return ['自家', '下家', '對家', '上家'][dist] ?? `Seat ${seat}`
+  return ['自家', '下家', '對家', '上家'][dist] ?? `座位 ${seat}`
 }
 
 function render(): void {
@@ -579,7 +707,7 @@ async function signIn(path: string): Promise<void> {
     activeUser = result.user
     connectLobby()
   } catch (error) {
-    ui('auth-error').textContent = error instanceof Error ? error.message : 'Authentication failed'
+    ui('auth-error').textContent = error instanceof Error ? error.message : '登入失敗，請稍後再試。'
   }
 }
 

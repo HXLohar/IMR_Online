@@ -13,6 +13,7 @@ The resolve_claims() helper is a pure function for easy unit-testing.
 """
 from __future__ import annotations
 import asyncio
+import os
 import time
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -33,6 +34,10 @@ from scoring.parsing import Call, CallType
 from scoring.api import WinFlags, waits
 
 STRAIGHT_CALL = 'straight_call'
+
+
+def _bot_delay() -> float:
+    return max(0.0, float(os.getenv('IMR_BOT_DELAY_SECONDS', '0.5')))
 TRIPLET_CALL = 'triplet_call'
 DIRECT_QUAD_CALL = 'direct_quad_call'
 UPGRADED_QUAD_DECLARE = 'upgraded_quad_declare'
@@ -151,6 +156,11 @@ class GameState:
         self.window_id = 0
         self.window_deadline_at: float | None = None
         self._timeout_task: asyncio.Task | None = None
+        self._turn_flags = WinFlags()
+        self._opening_wait: dict[int, bool] = {}
+        self._draw_count = 0
+        self._pending_robbing_quad = False
+        self._called_river_tiles: dict[int, list[int]] = {}
 
     def _cancel_timeout(self) -> None:
         task = self._timeout_task
@@ -236,6 +246,10 @@ class GameState:
         self._cancel_timeout()
         self.state = FSMState.DEALING
         self.wall = Wall(seed=self._seed)
+        self._draw_count = 0
+        self._opening_wait = {}
+        self._pending_robbing_quad = False
+        self._called_river_tiles = {}
 
         for p in self.players:
             p.reset_for_new_hand()
@@ -243,6 +257,8 @@ class GameState:
         hands = self.wall.deal(self.num_players)
         for i, p in enumerate(self.players):
             p.hand = list(hands[i])
+            if i != self.dealer:
+                self._opening_wait[i] = bool(waits(p.hand, p.calls))
             if p.is_bot:
                 await self._debug_log(f"{p.name} opening hand: {''.join(tile_to_str(t) for t in p.hand)}")
 
@@ -277,6 +293,16 @@ class GameState:
 
         p = self.players[seat]
         p.draw(tile)
+        self._turn_flags = WinFlags(
+            self_drawn=True,
+            last_tile=(self.wall.remaining() == 0),
+            heavenly=(self._draw_count == 0 and seat == self.dealer),
+            earthly=(self._draw_count == 1 and seat != self.dealer and not p.calls and not p.river),
+            heavenly_wait=(self._draw_count == 1 and seat != self.dealer
+                           and self._opening_wait.get(seat, False)
+                           and not p.calls and not p.river),
+        )
+        self._draw_count += 1
         self._open_turn_clock()
 
         await self.broadcast({
@@ -307,14 +333,14 @@ class GameState:
             action = bot.decide_turn(view)
             await self._debug_log(f"{p.name} turn hand={view['hand']} options={options} action={action}")
             if (action.get('action') or action.get('type')) == 'discard':
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(_bot_delay())
             await self.handle_player_action(seat, action)
 
     def _compute_turn_options(self, p: PlayerState, drawn_tile: Tile) -> list[str]:
         options: list[str] = ['discard']
 
         # Tsumo win
-        flags = WinFlags(self_drawn=True, last_tile=(self.wall.remaining() == 0))
+        flags = self._turn_flags
         if can_win_self_drawn(p.hand[:-1], p.calls, drawn_tile, flags):
             options.append('tsumo')
 
@@ -356,13 +382,19 @@ class GameState:
                 await self.send(seat, {'type': 'error', 'message': f'Tile {tile_str} not in hand'})
                 return
             if p.has_declared_wait and not self._discard_keeps_wait(p, tile):
+                if p.is_bot:
+                    tile = next((candidate for candidate in p.hand
+                                 if self._discard_keeps_wait(p, candidate)), None)
+                    if tile is not None:
+                        await self._do_discard(seat, tile, face_down)
+                        return
                 await self.send(seat, {'type': 'error', 'message': 'Discard would break declared-wait hand'})
                 return
             await self._do_discard(seat, tile, face_down)
 
         elif act == 'tsumo':
             tile = p.hand[-1]  # last drawn
-            flags = WinFlags(self_drawn=True, last_tile=(self.wall.remaining() == 0))
+            flags = self._turn_flags
             if not can_win_self_drawn(p.hand[:-1], p.calls, tile, flags):
                 await self.send(seat, {'type': 'error', 'message': 'Invalid tsumo'})
                 return
@@ -390,9 +422,16 @@ class GameState:
         elif act == DECLARE_WAIT:
             tile_str = action.get('tile')
             tile = next((t for t in p.hand if tile_to_str(t) == tile_str), None)
-            # Bots may omit the tile; the drawn tile is their safe atomic discard.
+            # Bots may omit the tile; choose a discard that actually preserves
+            # tenpai so the atomic declare+discard cannot strand the hand.
             if tile is None and p.is_bot:
-                tile = p.hand[-1] if p.hand else None
+                tile = None
+                for candidate in p.hand:
+                    hand_after = list(p.hand)
+                    hand_after.remove(candidate)
+                    if waits(hand_after, p.calls):
+                        tile = candidate
+                        break
             if tile is None or not self._is_concealed(p):
                 await self.send(seat, {'type': 'error', 'message': 'Cannot declare wait'})
                 return
@@ -461,6 +500,7 @@ class GameState:
         self.state = FSMState.AWAIT_CLAIMS
         self._pending_discard = tile
         self._pending_from_seat = from_seat
+        self._pending_robbing_quad = False
         self._claims = {}
         self._claims_received = 0
         self._claim_options = {}
@@ -475,7 +515,7 @@ class GameState:
             if s == from_seat:
                 continue
             p = self.players[s]
-            flags = WinFlags(last_tile=(self.wall.remaining() == 0))
+            flags = self._claim_win_flags(s, from_seat)
             claims = legal_claims(
                 hand=p.hand,
                 calls=p.calls,
@@ -563,9 +603,13 @@ class GameState:
     async def _do_tsumo(self, seat: int, tile: Tile) -> None:
         p = self.players[seat]
         flags = WinFlags(
-            self_drawn=True,
-            last_tile=(self.wall.remaining() == 0),
+            self_drawn=self._turn_flags.self_drawn,
+            last_tile=self._turn_flags.last_tile,
             declared_wait=p.has_declared_wait,
+            after_quad=self._turn_flags.after_quad,
+            heavenly=self._turn_flags.heavenly,
+            earthly=self._turn_flags.earthly,
+            heavenly_wait=self._turn_flags.heavenly_wait,
         )
         result = settle_wins(
             winners_data=[(seat, tile, 'tsumo', -1)],
@@ -583,19 +627,14 @@ class GameState:
     async def _do_ron(self, winner_seats: list[int], tile: Tile, from_seat: int) -> None:
         winners_data = []
         for ws in winner_seats:
-            p = self.players[ws]
-            flags = WinFlags(
-                self_drawn=False,
-                last_tile=(self.wall.remaining() == 0),
-                declared_wait=p.has_declared_wait,
-                robbing_quad=False,  # standard ron
-            )
             winners_data.append((ws, tile, 'ron', from_seat))
 
         all_flags = {}
         for ws in winner_seats:
             p = self.players[ws]
-            all_flags[ws] = WinFlags(self_drawn=False, declared_wait=p.has_declared_wait)
+            flags = self._claim_win_flags(ws, from_seat)
+            flags.declared_wait = p.has_declared_wait
+            all_flags[ws] = flags
 
         result = settle_wins(
             winners_data=winners_data,
@@ -618,6 +657,7 @@ class GameState:
     async def _do_call(self, seat: int, action: dict, tile: Tile, from_seat: int) -> None:
         p = self.players[seat]
         claim = action.get('claim')
+        claimed_index = len(self.players[from_seat].river) - 1
 
         if claim == TRIPLET_CALL:
             if not can_add_straight_triplet_call(p.pass_count, p.straight_triplet_count):
@@ -627,6 +667,7 @@ class GameState:
             p.hand.remove(tile)
             call = Call(CallType.TRIPLET, [tile, tile, tile])
             p.add_call(call, is_straight_or_triplet=True)
+            self._called_river_tiles.setdefault(from_seat, []).append(claimed_index)
             await self.broadcast({
                 'type': 'call_made', 'seat': seat, 'call': TRIPLET_CALL,
                 'tiles': [tile_to_str(tile)] * 3, 'from_seat': from_seat,
@@ -641,6 +682,7 @@ class GameState:
                 p.hand.remove(tile)
             call = Call(CallType.QUAD, [tile] * 4)
             p.add_call(call, is_straight_or_triplet=False)
+            self._called_river_tiles.setdefault(from_seat, []).append(claimed_index)
             await self.broadcast({
                 'type': 'call_made', 'seat': seat, 'call': DIRECT_QUAD_CALL,
                 'tiles': [tile_to_str(tile)] * 4, 'from_seat': from_seat,
@@ -669,6 +711,7 @@ class GameState:
             straight_tiles_full = sorted([tile] + straight_hand_tiles[:2])
             call = Call(CallType.STRAIGHT, straight_tiles_full)
             p.add_call(call, is_straight_or_triplet=True)
+            self._called_river_tiles.setdefault(from_seat, []).append(claimed_index)
             await self.broadcast({
                 'type': 'call_made', 'seat': seat, 'call': STRAIGHT_CALL,
                 'tiles': [tile_to_str(t) for t in straight_tiles_full], 'from_seat': from_seat,
@@ -699,7 +742,7 @@ class GameState:
             discard_action = bot.decide_turn(view)
             await self._debug_log(f"{p.name} after call hand={view['hand']} options={options} action={discard_action}")
             if (discard_action.get('action') or discard_action.get('type')) == 'discard':
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(_bot_delay())
             await self.handle_player_action(seat, discard_action)
 
     # ------------------------------------------------------------------
@@ -740,6 +783,7 @@ class GameState:
         self.state = FSMState.AWAIT_CLAIMS
         self._pending_discard = tile
         self._pending_from_seat = quad_seat
+        self._pending_robbing_quad = True
         self._claims = {}
         self._claims_received = 0
         self._claim_options = {}
@@ -752,7 +796,7 @@ class GameState:
             if s == quad_seat:
                 continue
             p = self.players[s]
-            flags = WinFlags(robbing_quad=True)
+            flags = WinFlags(robbing_quad=True, last_tile=(self.wall.remaining() == 0))
             can_win = can_win_on_discard(p.hand, p.calls, tile, flags)
             options = ['win'] if can_win else ['skip']
 
@@ -795,7 +839,9 @@ class GameState:
         })
 
         # Check win after quad supplement (嶺上開花)
-        flags = WinFlags(self_drawn=True, after_quad=True, last_tile=(self.wall.remaining() == 0))
+        self._turn_flags = WinFlags(self_drawn=True, after_quad=True,
+                                    last_tile=(self.wall.remaining() == 0))
+        flags = self._turn_flags
         options = ['discard']
         if can_win_self_drawn(p.hand[:-1], p.calls, tile, flags):
             options.append('tsumo')
@@ -822,7 +868,7 @@ class GameState:
             action = bot.decide_turn(view)
             await self._debug_log(f"{p.name} quad draw hand={view['hand']} options={options} action={action}")
             if (action.get('action') or action.get('type')) == 'discard':
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(_bot_delay())
             await self.handle_player_action(seat, action)
 
     # ------------------------------------------------------------------
@@ -862,6 +908,9 @@ class GameState:
                 'seat': w.seat,
                 'win_type': w.win_type,
                 'from_seat': w.from_seat,
+                'hand': [tile_to_str(t) for t in self.players[w.seat].hand]
+                        + ([tile_to_str(w.scoring.explanation.winning_tile)] if w.win_type == 'ron' else []),
+                'calls': [str(c) for c in self.players[w.seat].calls],
                 'fans': fans_payload,
                 'raw_score': w.scoring.total_score,
                 'final_score': w.final_score,
@@ -874,6 +923,7 @@ class GameState:
             'type': 'hand_result',
             'winners': winners_payload,
             'payments': {str(k): v for k, v in result.payments.items()},
+            'scores': {str(p.seat): p.score for p in self.players},
         })
 
         self.state = FSMState.MATCH_END
@@ -902,6 +952,9 @@ class GameState:
             'type': 'draw_result',
             'tenpai_seats': tenpai,
             'payments': {str(k): v for k, v in result.payments.items()},
+            'scores': {str(p.seat): p.score for p in self.players},
+            'hands': {str(p.seat): [tile_to_str(t) for t in p.hand] for p in self.players},
+            'calls': {str(p.seat): [str(c) for c in p.calls] for p in self.players},
         })
         self.state = FSMState.MATCH_END
         if self.hand_complete_fn:
@@ -916,6 +969,16 @@ class GameState:
         return not any(
             c.call_type in (CallType.STRAIGHT, CallType.TRIPLET, CallType.QUAD)
             for c in p.calls
+        )
+
+    def _claim_win_flags(self, seat: int, from_seat: int) -> WinFlags:
+        """Flags applicable to a discard win, including first/final turns."""
+        first_discard = self._draw_count == 1 and from_seat == self.dealer
+        return WinFlags(
+            last_tile=(self.wall.remaining() == 0) if self.wall else False,
+            robbing_quad=self._pending_robbing_quad,
+            heavenly_wait=(first_discard and seat != self.dealer
+                           and self._opening_wait.get(seat, False)),
         )
 
     def _can_declare_wait(self, p: PlayerState) -> bool:
@@ -1043,6 +1106,7 @@ class GameState:
                                       for t, fd in zip(op.river, op.river_face_down)]
                        for op in self.players},
             'calls': {str(op.seat): [str(c) for c in op.calls] for op in self.players},
+            'called_river_tiles': {str(seat): indexes for seat, indexes in self._called_river_tiles.items()},
             'your_seat': seat,
             'your_hand': [tile_to_str(t) for t in p.hand],
             'your_calls': view['calls'],
@@ -1075,7 +1139,7 @@ class GameState:
             return {'claim': 'skip'}
 
         p = self.players[seat]
-        flags = WinFlags(last_tile=(self.wall.remaining() == 0) if self.wall else False)
+        flags = self._claim_win_flags(seat, self._pending_from_seat)
         claims = legal_claims(
             hand=p.hand,
             calls=p.calls,

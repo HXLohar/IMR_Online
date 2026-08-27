@@ -174,7 +174,7 @@ export function renderControls(): void {
         discard(_selectedTile)
       }))
 
-      const passBtn = makeBtn('让过 (背面)', () => {
+      const passBtn = makeBtn('讓過（背面）', () => {
         if (!_selectedTile) { alert('請先點選要打的牌'); return }
         discard(_selectedTile, true)
       })
@@ -215,7 +215,7 @@ export function renderControls(): void {
     }
 
     if (store.myTurnOptions.includes('declare_wait')) {
-      ctrl.appendChild(makeBtn('报听', () => {
+      ctrl.appendChild(makeBtn('宣告聽牌', () => {
         if (!_selectedTile) { alert('請先點選宣告聽牌後要打出的牌'); return }
         send({ type: 'self_action', action: 'declare_wait', tile: _selectedTile, turn_id: store.turnId ?? undefined })
         _selectedTile = null
@@ -318,6 +318,12 @@ function makeHandClickable(): void {
     }, { once: false })
     child.addEventListener('dblclick', () => {
       if (store.myTurnOptions.includes('discard')) discard(tileStr)
+    })
+    child.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        child.click()
+      }
     })
   }
 }
