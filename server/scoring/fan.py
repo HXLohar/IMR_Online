@@ -15,7 +15,6 @@ from dataclasses import dataclass, field
 from collections import Counter
 from scoring.parsing import (
     HandExplanation, Group, Tile, TileType, ParsedHand,
-    format_tiles_compact
 )
 
 
@@ -152,12 +151,6 @@ def get_all_tiles(explanation: HandExplanation) -> List[Tile]:
     if explanation.pair:
         tiles.extend(explanation.pair)
     return tiles
-
-
-def get_suit_counts(tiles: List[Tile]) -> Dict[TileType, int]:
-    """Count tiles by suit type."""
-    counts = Counter(t.tile_type for t in tiles)
-    return dict(counts)
 
 
 def get_numbered_suits(tiles: List[Tile]) -> Set[TileType]:
@@ -2147,113 +2140,3 @@ def calculate_score(explanation: HandExplanation, fans: Dict[int, Fan] = None) -
             total_score=total,
             is_excellence=False
         )
-
-
-def format_scoring_result(result: ScoringResult, lang: str = 'c') -> str:
-    """
-    Format scoring result for display.
-    lang: 'c' for Chinese (Traditional), 'e' for English
-    """
-    lines = []
-
-    if not result.achieved_fans:
-        if lang == 'c':
-            lines.append("無番")
-        else:
-            lines.append("No Fan")
-        return '\n'.join(lines)
-
-    for af in result.achieved_fans:
-        name = af.fan.name_c if lang == 'c' else af.fan.name_e
-        if not name:
-            name = af.fan.name_e if lang == 'c' else af.fan.name_c
-        if not name:
-            name = f"Fan #{af.fan.id}"
-
-        if af.is_main:
-            lines.append(f"[{name}] {af.score} pts (主番)")
-        elif result.is_excellence and af.score != af.fan.value:
-            lines.append(f"[{name}] +{af.score} pts (原 {af.fan.value}, 減半)")
-        else:
-            lines.append(f"[{name}] +{af.score} pts")
-
-    if lang == 'c':
-        lines.append(f"總分: {result.total_score} 分")
-    else:
-        lines.append(f"Total: {result.total_score} pts")
-
-    return '\n'.join(lines)
-
-
-# =============================================================================
-# MAIN INTERFACE
-# =============================================================================
-
-def score_hand(explanation: HandExplanation, csv_path: str = None) -> ScoringResult:
-    """Main function to score a hand explanation."""
-    fans = load_fans_from_csv(csv_path)
-    return calculate_score(explanation, fans)
-
-
-def run_fan_tests():
-    """Run tests for fan detection and scoring."""
-    from main import analyze_hand
-
-    test_cases = [
-        # Basic patterns
-        ("[123c][123c]222d4455d + 5d", "Twin Straight (309)"),
-        ("22334477889c NN + 9c*", "Double Twin Straight (308)"),
-        ("[EEEE*]123345c6789d + 9d", "Concealed Hand with concealed quad"),
-        ("334455c1236678d + 6d", "Concealed Hand (410)"),
-        ("[222d]234b6777888c + 5c", "Simple Hand (216)"),
-        ("[567c]77b334455c77d + 7b", "Simpler Hand (215)"),
-        ("[333b][444d][1111b*]5556b + 6b", "All Triplets (401)"),
-        ("[123b][456b]6677788c + 8c*", "Self-Drawn (501)"),
-
-        # Dragon patterns
-        ("456b123555c2278d + 9d", "Mixed Dragon Straight (305)"),
-        ("123456789bEEES + S", "Dragon Straight (304)"),
-
-        # Flush patterns
-        ("[RRR][GGG]1122366d + 3d*", "Mixed Flush (202)"),
-        ("1122335577889b + 9b", "Pure Flush (201) + Seven Pairs (404)"),
-
-        # Special wins
-        ("[234c][7777c]33355bRR + R* +AQ", "Win After a Quad (407)"),
-        ("[RRRR*][123b]4567899b + 9b* +GTM", "Grab the Moon (409)"),
-
-        # Excellence fans
-        ("19b19c19dESWNWhGR + R*", "Thirteen Orphans (122)"),
-        ("[EEE][SSS][WWW]NNN44d + 4d", "Major Four Winds (107)"),
-        ("[RRR][GGG][WhWhWh]11155b + 5b", "Major Three Dragons (110)"),
-    ]
-
-    print("=" * 60)
-    print("Fan Detection and Scoring Tests")
-    print("=" * 60)
-
-    fans = load_fans_from_csv()
-    print(f"Loaded {len(fans)} fans from CSV")
-    print()
-
-    for hand, desc in test_cases:
-        print(f"Test: {desc}")
-        print(f"Input: {hand}")
-
-        result = analyze_hand(hand)
-        if not result['is_valid'] or not result['explanations']:
-            print("  [Invalid hand or no explanations]")
-            print()
-            continue
-
-        # Score the first explanation
-        exp = result['explanations'][0]
-        score_result = calculate_score(exp, fans)
-
-        print(f"  Pattern: {exp.pattern_type}")
-        print(f"  {format_scoring_result(score_result, 'c')}")
-        print()
-
-
-if __name__ == "__main__":
-    run_fan_tests()

@@ -169,7 +169,7 @@ def test_bot_discard_waits_half_a_second(monkeypatch):
 
     player = PlayerState(seat=0, name='Bot', is_bot=True)
     player.hand = tiles('123b456c789d1122c')
-    player._bot = DiscardBot()
+    player.bot = DiscardBot()
     game = GameState([player], noop, noop)
     game.wall = FakeWall([T('9b')])
 
@@ -198,7 +198,7 @@ def test_redraw_discards_opens_claims_then_draws_for_same_player():
     for seat in (1, 2, 3):
         p = PlayerState(seat=seat, name=f'Bot-{seat}', is_bot=True)
         p.hand = tiles('123b456c789d1122c')
-        p._bot = SkipBot()
+        p.bot = SkipBot()
         players.append(p)
 
     game = GameState(players, send, broadcast)

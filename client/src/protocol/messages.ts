@@ -5,8 +5,6 @@ export type ClaimType = 'straight_call' | 'triplet_call' | 'direct_quad_call' | 
 export type SelfActionType = 'tsumo' | 'concealed_quad_declare' | 'upgraded_quad_declare' | 'redraw' | 'declare_wait'
 
 export type ClientMessage =
-  | { type: 'join'; name: string }
-  | { type: 'ready' }
   | { type: 'discard'; tile: string; face_down?: boolean; turn_id?: number }
   | { type: 'claim'; claim: ClaimType; tiles?: string[]; window_id?: number }
   | { type: 'self_action'; action: SelfActionType; tile?: string; turn_id?: number }

@@ -19,15 +19,6 @@ MatchLength = Literal[1, 4, 8]
 BotType = Literal['efficiency', 'auto_call', 'discard_only']
 
 
-class JoinMsg(ProtocolMessage):
-    type: Literal['join'] = 'join'
-    name: str = Field(min_length=1, max_length=32)
-
-
-class ReadyMsg(ProtocolMessage):
-    type: Literal['ready'] = 'ready'
-
-
 class DiscardMsg(ProtocolMessage):
     type: Literal['discard'] = 'discard'
     tile: str
@@ -95,38 +86,9 @@ class ResumeMsg(ProtocolMessage):
     type: Literal['resume'] = 'resume'
 
 
-# ---------------------------------------------------------------------------
-# Server → Client (output dicts — not validated on send, informational)
-# ---------------------------------------------------------------------------
-
-class PlayerInfo(BaseModel):
-    seat: int
-    name: str
-    is_bot: bool
-
-
-# Outbound payloads are plain dicts built by the FSM; pydantic is only used
-# for *inbound* validation. Outbound types are documented here as reference.
-
-C2S_MESSAGE_TYPES = {
-    'join': JoinMsg,
-    'ready': ReadyMsg,
-    'discard': DiscardMsg,
-    'claim': ClaimMsg,
-    'self_action': SelfActionMsg,
-    'create_room': CreateRoomMsg,
-    'join_room': JoinRoomMsg,
-    'set_room_config': SetRoomConfigMsg,
-    'start_room': StartRoomMsg,
-    'queue_join': QueueJoinMsg,
-    'queue_leave': QueueLeaveMsg,
-    'leave_room': LeaveRoomMsg,
-    'resume': ResumeMsg,
-}
-
 ClientMessage = Annotated[
     Union[
-        JoinMsg, ReadyMsg, DiscardMsg, ClaimMsg, SelfActionMsg,
+        DiscardMsg, ClaimMsg, SelfActionMsg,
         CreateRoomMsg, JoinRoomMsg, SetRoomConfigMsg, StartRoomMsg,
         QueueJoinMsg, QueueLeaveMsg, LeaveRoomMsg, ResumeMsg,
     ],

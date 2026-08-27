@@ -102,7 +102,6 @@ def settle_wins(
     player_declared_wait: dict[int, bool] | None = None,
     flags_extra: dict[int, WinFlags] | None = None,  # per-seat flags (after_quad, last_tile, etc.)
     num_players: int = 4,
-    **legacy,
 ) -> SettleResult:
     """
     Compute payments for one or more winners (一炮多響 supported).
@@ -111,7 +110,7 @@ def settle_wins(
     payments: dict[int, int] = {s: 0 for s in range(num_players)}
     flags_extra = flags_extra or {}
     if player_declared_wait is None:
-        player_declared_wait = legacy.get('player_riichi', {})
+        player_declared_wait = {}
 
     for seat, winning_tile, win_type, from_seat_val in winners_data:
         hand = player_hands[seat]

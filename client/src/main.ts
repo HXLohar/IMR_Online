@@ -199,22 +199,7 @@ function handleMessage(msg: unknown): void {
       break
     }
     case 'match_resume': {
-      if (m['snapshot']) {
-        applyMatchSnapshot(m['snapshot'] as Record<string, unknown>)
-        break
-      }
-      const resumedOthers: typeof store.others = {}
-      for (const other of (m['others'] as any[]) ?? []) resumedOthers[other.seat] = {
-        seat: other.seat, name: other.name ?? `Seat ${other.seat}`, is_bot: other.is_bot ?? false,
-        hand_count: other.hand_count, calls: other.calls ?? [], river: other.river ?? [],
-        pass_count: other.pass_count ?? 0, straightTripletCount: other.straight_triplet_count ?? 0,
-        hasDeclaredWait: other.has_declared_wait ?? false,
-      }
-      updateStore({ phase: 'playing', mySeat: m['your_seat'] as number, hand: m['your_hand'] as string[],
-        calls: m['your_calls'] as string[], river: m['your_river'] as (string | null)[], others: resumedOthers,
-         currentSeat: m['current_seat'] as number, myTurnOptions: [], claimOptions: [],
-         turnId: null, turnDeadlineAt: null, claimWindowId: null, claimDeadlineAt: null })
-      showScreen('game')
+      applyMatchSnapshot(m['snapshot'] as Record<string, unknown>)
       break
     }
     case 'match_lost': {
@@ -243,20 +228,6 @@ function handleMessage(msg: unknown): void {
       render()
       break
     }
-    case 'joined': {
-      updateStore({
-        phase: 'lobby',
-        mySeat: m['seat'] as number,
-        players: m['players'] as typeof store.players,
-      })
-      setStatus('已連線，遊戲準備中…')
-      // Send join with name
-      const name = prompt('請輸入你的名稱:', 'Guest') ?? 'Guest'
-      updateStore({ myName: name })
-      send({ type: 'join', name })
-      break
-    }
-
     case 'game_start': {
       const yourSeat = m['your_seat'] as number | undefined
       if (yourSeat === store.mySeat) {
@@ -419,8 +390,7 @@ function handleMessage(msg: unknown): void {
       break
     }
 
-    case 'wait_declared':
-    case 'ready_declared': {
+    case 'wait_declared': {
       if ((m['seat'] as number) === store.mySeat) {
         updateStore({ hasDeclaredWait: true })
       }
@@ -464,63 +434,6 @@ function handleMessage(msg: unknown): void {
 // ---------------------------------------------------------------------------
 // Result overlay
 // ---------------------------------------------------------------------------
-
-function showResult(m: Record<string, unknown>): void {
-  const overlay = document.getElementById('result-overlay')!
-  const title = document.getElementById('result-title')!
-  const body = document.getElementById('result-body')!
-
-  overlay.classList.remove('hidden')
-  title.textContent = '和牌結算'
-
-  const winners = m['winners'] as Array<Record<string, unknown>>
-  const payments = m['payments'] as Record<string, number>
-
-  let html = ''
-  for (const w of winners) {
-    html += `<div style="margin-bottom:12px;border-bottom:1px solid #444;padding-bottom:8px">`
-    html += `<strong>${seatLabel(w['seat'] as number)}</strong> ${w['win_type'] === 'tsumo' ? '自摸' : `點和 from ${seatLabel(w['from_seat'] as number)}`}<br>`
-    const fans = w['fans'] as Array<Record<string, unknown>>
-    for (const f of fans) {
-      html += `&nbsp;&nbsp;${f['name']} +${f['value']}<br>`
-    }
-    html += `<strong>最終分: ${w['final_score']}</strong>`
-    html += `</div>`
-  }
-
-  html += '<div style="margin-top:8px"><strong>賠付:</strong><br>'
-  for (const [seat, delta] of Object.entries(payments)) {
-    const cls = delta === 0 ? 'payment-zero' : delta > 0 ? 'payment-pos' : 'payment-neg'
-    const sign = delta > 0 ? '+' : ''
-    html += `<div class="payment-row"><span>${seatLabel(Number(seat))}</span><span class="${cls}">${sign}${delta}</span></div>`
-  }
-  html += '</div>'
-
-  body.innerHTML = html
-}
-
-function showDrawResult(m: Record<string, unknown>): void {
-  const overlay = document.getElementById('result-overlay')!
-  const title = document.getElementById('result-title')!
-  const body = document.getElementById('result-body')!
-
-  overlay.classList.remove('hidden')
-  title.textContent = '荒牌'
-
-  const tenpai = m['tenpai_seats'] as number[]
-  const payments = m['payments'] as Record<string, number>
-
-  let html = `<p>聽牌: ${tenpai.length > 0 ? tenpai.map(seatLabel).join(', ') : '無'}</p>`
-  html += '<div style="margin-top:8px"><strong>賠付:</strong><br>'
-  for (const [seat, delta] of Object.entries(payments)) {
-    const cls = delta === 0 ? 'payment-zero' : delta > 0 ? 'payment-pos' : 'payment-neg'
-    const sign = delta > 0 ? '+' : ''
-    html += `<div class="payment-row"><span>${seatLabel(Number(seat))}</span><span class="${cls}">${sign}${delta}</span></div>`
-  }
-  html += '</div>'
-
-  body.innerHTML = html
-}
 
 function showMatchResult(m: Record<string, unknown>): void {
   const overlay = document.getElementById('result-overlay')!
@@ -596,9 +509,7 @@ function replaceTripletWithUpgradedQuad(calls: string[], tiles: string[]): strin
 }
 
 function straightTripletCountFrom(m: Record<string, unknown>, fallback: number): number {
-  return (m['straight_triplet_count'] as number | undefined)
-    ?? (m['chow_pong_count'] as number | undefined)
-    ?? fallback
+  return (m['straight_triplet_count'] as number | undefined) ?? fallback
 }
 
 function parseTiles(callStr: string): string[] {

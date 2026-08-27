@@ -3,7 +3,7 @@ Tile wall: shuffle, deal, draw, quad supplement.
 Step 1 has no dora indicators — the wall is simply 136 tiles.
 """
 import random
-from game.tiles import ALL_TILES, Tile, tile_to_str
+from game.tiles import ALL_TILES, Tile
 
 FULL_WALL_SIZE = 136  # 34 types × 4 copies
 

@@ -14,9 +14,9 @@ The resolve_claims() helper is a pure function for easy unit-testing.
 from __future__ import annotations
 import asyncio
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Callable, Awaitable
+from typing import Callable, Awaitable
 
 from game.tiles import Tile, tile_to_str
 from game.wall import Wall
@@ -38,29 +38,6 @@ DIRECT_QUAD_CALL = 'direct_quad_call'
 UPGRADED_QUAD_DECLARE = 'upgraded_quad_declare'
 CONCEALED_QUAD_DECLARE = 'concealed_quad_declare'
 DECLARE_WAIT = 'declare_wait'
-
-# Keep these narrow aliases so stale clients/tests fail soft while the protocol
-# emits the IMR terms above.
-LEGACY_CLAIMS = {
-    'chow': STRAIGHT_CALL,
-    'pong': TRIPLET_CALL,
-    'kong': DIRECT_QUAD_CALL,
-}
-
-LEGACY_ACTIONS = {
-    'added_kong': UPGRADED_QUAD_DECLARE,
-    'concealed_kong': CONCEALED_QUAD_DECLARE,
-    'declare_ready': DECLARE_WAIT,
-}
-
-
-def _claim_name(claim: str) -> str:
-    return LEGACY_CLAIMS.get(claim, claim)
-
-
-def _action_name(action: str) -> str:
-    return LEGACY_ACTIONS.get(action, action)
-
 
 # ---------------------------------------------------------------------------
 # State enum
@@ -105,14 +82,14 @@ def resolve_claims(
         return ClaimResolution(winners=winners, call_seat=None, call_action=None)
 
     def priority(claim: str) -> int:
-        return {DIRECT_QUAD_CALL: 3, TRIPLET_CALL: 2, STRAIGHT_CALL: 1}.get(_claim_name(claim), 0)
+        return {DIRECT_QUAD_CALL: 3, TRIPLET_CALL: 2, STRAIGHT_CALL: 1}.get(claim, 0)
 
     best_prio = 0
     best_seat: int | None = None
     best_action: dict | None = None
 
     for seat, action in claims.items():
-        claim = _claim_name(action.get('claim', 'skip'))
+        claim = action.get('claim', 'skip')
         p = priority(claim)
         if p == 0:
             continue
@@ -160,16 +137,12 @@ class GameState:
 
         # Pending discard info during AWAIT_CLAIMS
         self._pending_discard: Tile | None = None
-        self._pending_discard_face_down: bool = False
         self._pending_from_seat: int = 0
         self._claims: dict[int, dict] = {}     # seat -> claim action
         self._claims_received: int = 0
         self._claim_options: dict[int, list[str]] = {}
         self._no_claim_next_seat: int | None = None
         self._no_claim_quad_draw_seat: int | None = None
-
-        # Quad supplement tracking
-        self._quad_supplement_seat: int = 0
 
         # Monotonic IDs make late client messages harmless, while wall-clock
         # deadlines are sent to clients for reconnect-safe display.
@@ -328,13 +301,12 @@ class GameState:
 
         # Let bot discards remain visible before advancing the turn.
         if p.is_bot:
-            from bots.base import Bot
-            bot: Bot = p._bot  # type: ignore
+            bot = p.bot
             view = self._build_view(seat)
             view['options'] = options
             action = bot.decide_turn(view)
             await self._debug_log(f"{p.name} turn hand={view['hand']} options={options} action={action}")
-            if _action_name(action.get('action') or action.get('type')) == 'discard':
+            if (action.get('action') or action.get('type')) == 'discard':
                 await asyncio.sleep(0.5)
             await self.handle_player_action(seat, action)
 
@@ -361,7 +333,6 @@ class GameState:
         if is_redraw_eligible(
             drawn_tile,
             own_river=p.all_visible_discards(),
-            own_open_calls=[c.tiles for c in p.calls],
             all_visible_tiles=all_vis,
         ):
             options.append('redraw')
@@ -375,7 +346,7 @@ class GameState:
 
     async def _process_turn_action(self, seat: int, action: dict) -> None:
         p = self.players[seat]
-        act = _action_name(action.get('action') or action.get('type'))
+        act = action.get('action') or action.get('type')
 
         if act == 'discard':
             tile_str = action.get('tile')
@@ -411,8 +382,7 @@ class GameState:
         elif act == 'redraw':
             tile = p.hand[-1]
             all_vis = self._all_visible_tiles()
-            if not is_redraw_eligible(tile, p.all_visible_discards(),
-                                      [c.tiles for c in p.calls], all_vis):
+            if not is_redraw_eligible(tile, p.all_visible_discards(), all_vis):
                 await self.send(seat, {'type': 'error', 'message': 'Redraw not eligible'})
                 return
             await self._do_redraw(seat, tile)
@@ -490,7 +460,6 @@ class GameState:
     ) -> None:
         self.state = FSMState.AWAIT_CLAIMS
         self._pending_discard = tile
-        self._pending_discard_face_down = False
         self._pending_from_seat = from_seat
         self._claims = {}
         self._claims_received = 0
@@ -554,8 +523,7 @@ class GameState:
             })
 
             if p.is_bot:
-                from bots.base import Bot
-                bot: Bot = p._bot  # type: ignore
+                bot = p.bot
                 bot_action = bot.decide_claim(self._build_view(s), options)
                 await self._debug_log(f"{p.name} claim tile={tile_to_str(tile)} options={options} action={bot_action}")
                 bot_claims.append((s, bot_action))
@@ -649,7 +617,7 @@ class GameState:
 
     async def _do_call(self, seat: int, action: dict, tile: Tile, from_seat: int) -> None:
         p = self.players[seat]
-        claim = _claim_name(action.get('claim'))
+        claim = action.get('claim')
 
         if claim == TRIPLET_CALL:
             if not can_add_straight_triplet_call(p.pass_count, p.straight_triplet_count):
@@ -725,13 +693,12 @@ class GameState:
         })
 
         if p.is_bot:
-            from bots.base import Bot
-            bot: Bot = p._bot  # type: ignore
+            bot = p.bot
             view = self._build_view(seat)
             view['options'] = options
             discard_action = bot.decide_turn(view)
             await self._debug_log(f"{p.name} after call hand={view['hand']} options={options} action={discard_action}")
-            if _action_name(discard_action.get('action') or discard_action.get('type')) == 'discard':
+            if (discard_action.get('action') or discard_action.get('type')) == 'discard':
                 await asyncio.sleep(0.5)
             await self.handle_player_action(seat, discard_action)
 
@@ -801,8 +768,7 @@ class GameState:
             self._claim_options[s] = options
 
             if p.is_bot:
-                from bots.base import Bot
-                bot: Bot = p._bot  # type: ignore
+                bot = p.bot
                 bot_action = bot.decide_claim(self._build_view(s), options)
                 await self._debug_log(f"{p.name} rob-quad tile={tile_to_str(tile)} options={options} action={bot_action}")
                 bot_claims.append((s, bot_action))
@@ -816,7 +782,6 @@ class GameState:
     async def _begin_quad_draw(self, seat: int) -> None:
         """Draw supplement tile from dead wall after a quad."""
         self.state = FSMState.KONG_DRAW
-        self._quad_supplement_seat = seat
         tile = self.wall.draw_supplement()
         if tile is None:
             await self._exhaustive_draw()
@@ -851,13 +816,12 @@ class GameState:
         })
 
         if p.is_bot:
-            from bots.base import Bot
-            bot: Bot = p._bot  # type: ignore
+            bot = p.bot
             view = self._build_view(seat)
             view['options'] = options
             action = bot.decide_turn(view)
             await self._debug_log(f"{p.name} quad draw hand={view['hand']} options={options} action={action}")
-            if _action_name(action.get('action') or action.get('type')) == 'discard':
+            if (action.get('action') or action.get('type')) == 'discard':
                 await asyncio.sleep(0.5)
             await self.handle_player_action(seat, action)
 
@@ -1102,7 +1066,7 @@ class GameState:
             await self.send(0, {'type': 'debug_log', 'message': message})
 
     def _sanitize_claim(self, seat: int, claim_action: dict) -> dict:
-        claim = _claim_name(claim_action.get('claim', 'skip'))
+        claim = claim_action.get('claim', 'skip')
         if claim == 'skip':
             return {'claim': 'skip'}
 

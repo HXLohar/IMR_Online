@@ -2,45 +2,45 @@
 from scoring.parsing import Tile, TileType, Call, CallType
 from scoring.api import WinFlags
 from game.legal import (
-    can_chow, can_pong, can_open_kong, can_concealed_kong,
-    can_added_kong, can_win_on_discard, legal_claims,
-    can_add_chow_pong, can_add_pass, chow_pong_limit,
+    can_straight_call, can_triplet_call, can_direct_quad_call, can_concealed_quad_declare,
+    can_upgraded_quad_declare, can_win_on_discard, legal_claims,
+    can_add_straight_triplet_call, can_add_pass, straight_triplet_limit,
 )
 from game.redraw import is_redraw_eligible
 from game.tiles import tile_from_str as T, tiles_from_str as tiles
 
 
 # ---------------------------------------------------------------------------
-# chow_pong_limit
+# straight_triplet_limit
 # ---------------------------------------------------------------------------
 
 def test_limit_no_pass():
-    assert chow_pong_limit(0) == 4
+    assert straight_triplet_limit(0) == 4
 
 def test_limit_one_pass():
-    assert chow_pong_limit(1) == 2
+    assert straight_triplet_limit(1) == 2
 
 def test_limit_two_passes():
-    assert chow_pong_limit(2) == 1
+    assert straight_triplet_limit(2) == 1
 
 def test_total_pass_call_limit():
-    assert can_add_chow_pong(0, 3)
-    assert not can_add_chow_pong(0, 4)
-    assert can_add_chow_pong(2, 0)
-    assert not can_add_chow_pong(2, 1)
-    assert not can_add_chow_pong(1, 2)
+    assert can_add_straight_triplet_call(0, 3)
+    assert not can_add_straight_triplet_call(0, 4)
+    assert can_add_straight_triplet_call(2, 0)
+    assert not can_add_straight_triplet_call(2, 1)
+    assert not can_add_straight_triplet_call(1, 2)
     assert not can_add_pass(0, 3)
 
 
 # ---------------------------------------------------------------------------
-# can_chow
+# can_straight_call
 # ---------------------------------------------------------------------------
 
 class TestCanChow:
     def test_basic_chow(self):
         hand = tiles('13b')
         discard = T('2b')
-        options = can_chow(hand, discard, pass_count=0, chow_pong_count=0)
+        options = can_straight_call(hand, discard, pass_count=0, straight_triplet_count=0)
         assert len(options) == 1
         assert sorted(options[0].tiles) == sorted(tiles('123b'))
 
@@ -48,91 +48,91 @@ class TestCanChow:
         # 1b 2b 3b 4b in hand, discard 3b → chow 123b or 234b
         hand = tiles('124b')
         discard = T('3b')
-        options = can_chow(hand, discard, 0, 0)
+        options = can_straight_call(hand, discard, 0, 0)
         assert len(options) == 2
 
     def test_no_chow_honor(self):
         hand = tiles('EE')
         discard = T('E')
-        assert can_chow(hand, discard, 0, 0) == []
+        assert can_straight_call(hand, discard, 0, 0) == []
 
     def test_no_chow_missing_tile(self):
         hand = tiles('1b')
         discard = T('2b')
         # Need 1b+3b for 123b, but only have 1b and no 3b
-        assert can_chow(hand, discard, 0, 0) == []
+        assert can_straight_call(hand, discard, 0, 0) == []
 
     def test_chow_blocked_by_limit(self):
         # pass_count=2 → limit=1; already used 1 chow/pong
         hand = tiles('13b')
         discard = T('2b')
-        options = can_chow(hand, discard, pass_count=2, chow_pong_count=1)
+        options = can_straight_call(hand, discard, pass_count=2, straight_triplet_count=1)
         assert options == []
 
     def test_chow_at_edge_of_limit(self):
         # pass_count=1 → limit=2; used 1 so far, can still call
         hand = tiles('13b')
         discard = T('2b')
-        options = can_chow(hand, discard, pass_count=1, chow_pong_count=1)
+        options = can_straight_call(hand, discard, pass_count=1, straight_triplet_count=1)
         assert len(options) == 1
 
 
 # ---------------------------------------------------------------------------
-# can_pong
+# can_triplet_call
 # ---------------------------------------------------------------------------
 
 class TestCanPong:
     def test_basic_pong(self):
         hand = tiles('55c')
-        assert can_pong(hand, T('5c'), pass_count=0, chow_pong_count=0)
+        assert can_triplet_call(hand, T('5c'), pass_count=0, straight_triplet_count=0)
 
     def test_pong_need_two_in_hand(self):
         hand = tiles('5c')
-        assert not can_pong(hand, T('5c'), 0, 0)
+        assert not can_triplet_call(hand, T('5c'), 0, 0)
 
     def test_pong_blocked_by_limit(self):
         hand = tiles('55c')
-        assert not can_pong(hand, T('5c'), pass_count=2, chow_pong_count=1)
+        assert not can_triplet_call(hand, T('5c'), pass_count=2, straight_triplet_count=1)
 
     def test_pong_allowed_at_limit_edge(self):
         hand = tiles('55c')
-        assert can_pong(hand, T('5c'), pass_count=1, chow_pong_count=1)
+        assert can_triplet_call(hand, T('5c'), pass_count=1, straight_triplet_count=1)
 
 
 # ---------------------------------------------------------------------------
-# can_open_kong
+# can_direct_quad_call
 # ---------------------------------------------------------------------------
 
 class TestCanKong:
     def test_open_kong(self):
         hand = tiles('555c')
-        assert can_open_kong(hand, T('5c'))
+        assert can_direct_quad_call(hand, T('5c'))
 
     def test_open_kong_needs_three(self):
         hand = tiles('55c')
-        assert not can_open_kong(hand, T('5c'))
+        assert not can_direct_quad_call(hand, T('5c'))
 
     def test_concealed_kong(self):
         hand = tiles('5555c')
-        result = can_concealed_kong(hand, T('5c'))
+        result = can_concealed_quad_declare(hand, T('5c'))
         assert T('5c') in result
 
     def test_concealed_kong_from_draw(self):
         hand = tiles('555c')
         # Draw the 4th 5c
-        result = can_concealed_kong(hand, T('5c'))
+        result = can_concealed_quad_declare(hand, T('5c'))
         assert T('5c') in result
 
     def test_added_kong(self):
         hand = tiles('5c')
         pong_call = Call(CallType.TRIPLET, [T('5c')] * 3)
-        result = can_added_kong(hand, [pong_call], T('1b'))
+        result = can_upgraded_quad_declare(hand, [pong_call], T('1b'))
         assert T('5c') in result
 
     def test_added_kong_from_draw(self):
         hand = []
         pong_call = Call(CallType.TRIPLET, [T('5c')] * 3)
-        result = can_added_kong(hand, [pong_call], T('5c'))
+        result = can_upgraded_quad_declare(hand, [pong_call], T('5c'))
         assert T('5c') in result
 
 
@@ -167,10 +167,10 @@ class TestLegalClaims:
             calls=[],
             discard=discard,
             from_seat=0, my_seat=1, num_players=4,
-            pass_count=0, chow_pong_count=0,
+            pass_count=0, straight_triplet_count=0,
             win_flags=WinFlags(),
         )
-        assert len(claims['chow']) > 0
+        assert len(claims['straight_call']) > 0
 
     def test_non_downstream_cannot_chow(self):
         hand = tiles('12b345c678d1c')
@@ -179,10 +179,10 @@ class TestLegalClaims:
             hand=hand, calls=[],
             discard=discard,
             from_seat=0, my_seat=2, num_players=4,
-            pass_count=0, chow_pong_count=0,
+            pass_count=0, straight_triplet_count=0,
             win_flags=WinFlags(),
         )
-        assert claims['chow'] == []
+        assert claims['straight_call'] == []
 
     def test_face_down_no_claims(self):
         hand = tiles('12b345c678d1c')
@@ -190,13 +190,13 @@ class TestLegalClaims:
             hand=hand, calls=[],
             discard=T('5c'),
             from_seat=0, my_seat=1, num_players=4,
-            pass_count=0, chow_pong_count=0,
+            pass_count=0, straight_triplet_count=0,
             win_flags=WinFlags(),
             face_down=True,
         )
-        assert not claims['chow']
-        assert not claims['pong']
-        assert not claims['kong']
+        assert not claims['straight_call']
+        assert not claims['triplet_call']
+        assert not claims['direct_quad_call']
         assert not claims['win']
         assert claims['skip']
 
@@ -206,12 +206,12 @@ class TestLegalClaims:
             calls=[],
             discard=T('1c'),
             from_seat=3, my_seat=0, num_players=4,
-            pass_count=0, chow_pong_count=0,
+            pass_count=0, straight_triplet_count=0,
             win_flags=WinFlags(),
-            is_riichi=True,
+            has_declared_wait=True,
         )
-        assert claims['chow'] == []
-        assert not claims['pong']
+        assert claims['straight_call'] == []
+        assert not claims['triplet_call']
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +224,6 @@ class TestRedraw:
         assert is_redraw_eligible(
             drawn_tile=T('E'),
             own_river=[],
-            own_open_calls=[],
             all_visible_tiles=[T('E'), T('E'), T('1b')],
         )
 
@@ -232,7 +231,6 @@ class TestRedraw:
         assert not is_redraw_eligible(
             drawn_tile=T('E'),
             own_river=[],
-            own_open_calls=[],
             all_visible_tiles=[T('E')],
         )
 
@@ -240,7 +238,6 @@ class TestRedraw:
         assert is_redraw_eligible(
             drawn_tile=T('E'),
             own_river=[T('E')],
-            own_open_calls=[],
             all_visible_tiles=[T('E')],
         )
 
@@ -248,7 +245,6 @@ class TestRedraw:
         assert is_redraw_eligible(
             drawn_tile=T('5b'),
             own_river=[T('5b'), T('5b')],
-            own_open_calls=[],
             all_visible_tiles=[T('5b'), T('5b')],
         )
 
@@ -257,7 +253,6 @@ class TestRedraw:
         assert not is_redraw_eligible(
             drawn_tile=T('5b'),
             own_river=[T('5b'), T('1c')],  # 5b discarded once, but last is 1c
-            own_open_calls=[],
             all_visible_tiles=[T('5b'), T('1c')],
         )
 
@@ -265,7 +260,6 @@ class TestRedraw:
         assert is_redraw_eligible(
             drawn_tile=T('3c'),
             own_river=[T('1c'), T('3c')],
-            own_open_calls=[],
             all_visible_tiles=[T('1c'), T('3c')],
         )
 
@@ -273,6 +267,5 @@ class TestRedraw:
         assert not is_redraw_eligible(
             drawn_tile=T('3c'),
             own_river=[T('3c'), T('1c')],   # last is 1c, not 3c
-            own_open_calls=[],
             all_visible_tiles=[T('3c'), T('1c')],
         )

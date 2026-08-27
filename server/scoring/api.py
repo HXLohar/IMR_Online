@@ -8,13 +8,12 @@ from typing import List, Optional
 from collections import Counter
 
 from scoring.parsing import (
-    Tile, TileType, Call, CallType,
+    Tile, TileType, Call,
     ParsedHand, HandExplanation,
-    parse_tiles_english, find_all_explanations,
-    validate_hand, find_groups,
+    find_all_explanations, validate_hand,
 )
 from scoring.fan import (
-    Fan, ScoringResult, AchievedFan,
+    ScoringResult,
     load_fans_from_csv, calculate_score,
 )
 
@@ -45,42 +44,6 @@ class WinFlags:
     heavenly: bool = False         # 天和 (+BOH)
     earthly: bool = False          # 地和 (+BOE)
     heavenly_wait: bool = False    # 天聽 (+EW)
-
-    @property
-    def riichi(self) -> bool:
-        """Legacy alias for declared_wait."""
-        return self.declared_wait
-
-    @riichi.setter
-    def riichi(self, value: bool) -> None:
-        self.declared_wait = value
-
-    @property
-    def after_kong(self) -> bool:
-        """Legacy alias for after_quad."""
-        return self.after_quad
-
-    @after_kong.setter
-    def after_kong(self, value: bool) -> None:
-        self.after_quad = value
-
-    @property
-    def robbing_kong(self) -> bool:
-        """Legacy alias for robbing_quad."""
-        return self.robbing_quad
-
-    @robbing_kong.setter
-    def robbing_kong(self, value: bool) -> None:
-        self.robbing_quad = value
-
-    @property
-    def eastern_wind(self) -> bool:
-        """Legacy alias for heavenly_wait."""
-        return self.heavenly_wait
-
-    @eastern_wind.setter
-    def eastern_wind(self, value: bool) -> None:
-        self.heavenly_wait = value
 
 
 def _build_notes(flags: WinFlags) -> str:
@@ -196,8 +159,7 @@ def shanten(hand_tiles: List[Tile], calls: List[Call]) -> int:
     Derived from waits: if any wait exists, shanten = 0.
     """
     # Check if already winning (shanten = -1)
-    for candidate in waits(hand_tiles, calls):
-        # If there's at least one wait, we're tenpai
+    if waits(hand_tiles, calls):
         return 0
 
     # Simple approximation: count pairs/triplets/straights available

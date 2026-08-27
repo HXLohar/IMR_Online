@@ -49,6 +49,23 @@ function parseCallDisplay(callStr: string): { kind: string; source: string; clai
   return { kind: 'open', source: '', claimedIndex: -1, tiles: parseTilesFromCallStr(callStr) }
 }
 
+function renderCall(callStr: string): HTMLElement {
+  const call = parseCallDisplay(callStr)
+  const group = document.createElement('div')
+  group.className = `call-group ${call.kind === 'concealed_quad_declare' ? 'concealed-call' : 'open-call'}`
+  const row = document.createElement('div')
+  row.className = 'call-tiles'
+  call.tiles.forEach((t, i) => row.appendChild(makeTile(t, i === call.claimedIndex ? ['claimed-tile'] : [])))
+  group.appendChild(row)
+  if (call.source) {
+    const source = document.createElement('div')
+    source.className = 'call-source'
+    source.textContent = call.source
+    group.appendChild(source)
+  }
+  return group
+}
+
 // ---------------------------------------------------------------------------
 // Render
 // ---------------------------------------------------------------------------
@@ -93,20 +110,7 @@ function renderCalls(seat: number): void {
   const calls = store.others[seat]?.calls ?? []
 
   for (const callStr of calls) {
-    const call = parseCallDisplay(callStr)
-    const group = document.createElement('div')
-    group.className = `call-group ${call.kind === 'concealed_quad_declare' ? 'concealed-call' : 'open-call'}`
-    const row = document.createElement('div')
-    row.className = 'call-tiles'
-    call.tiles.forEach((t, i) => row.appendChild(makeTile(t, i === call.claimedIndex ? ['claimed-tile'] : [])))
-    group.appendChild(row)
-    if (call.source) {
-      const source = document.createElement('div')
-      source.className = 'call-source'
-      source.textContent = call.source
-      group.appendChild(source)
-    }
-    el(callsId).appendChild(group)
+    el(callsId).appendChild(renderCall(callStr))
   }
 }
 
@@ -117,20 +121,7 @@ function renderHand(): void {
 
   // Calls as groups first
   for (const callStr of store.calls) {
-    const call = parseCallDisplay(callStr)
-    const group = document.createElement('div')
-    group.className = `call-group ${call.kind === 'concealed_quad_declare' ? 'concealed-call' : 'open-call'}`
-    const row = document.createElement('div')
-    row.className = 'call-tiles'
-    call.tiles.forEach((t, i) => row.appendChild(makeTile(t, i === call.claimedIndex ? ['claimed-tile'] : [])))
-    group.appendChild(row)
-    if (call.source) {
-      const source = document.createElement('div')
-      source.className = 'call-source'
-      source.textContent = call.source
-      group.appendChild(source)
-    }
-    handEl.appendChild(group)
+    handEl.appendChild(renderCall(callStr))
   }
 
   // Separate the drawn tile from the rest only during my active turn

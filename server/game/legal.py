@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING
 
-from game.tiles import Tile, TileType
+from game.tiles import Tile
 from scoring.parsing import Call, CallType
 from scoring.api import is_winning, waits, WinFlags
 
@@ -46,15 +46,12 @@ def can_straight_call(
     discard: Tile,
     pass_count: int,
     straight_triplet_count: int = 0,
-    **legacy: int,
 ) -> list[Call]:
     """
     Return all valid straight call options.
     Straight call is only valid when called by the player directly downstream.
     (Caller must check seat adjacency before using this result.)
     """
-    if "chow_pong_count" in legacy:
-        straight_triplet_count = legacy["chow_pong_count"]
     if discard.is_honor():
         return []
 
@@ -96,11 +93,8 @@ def can_triplet_call(
     discard: Tile,
     pass_count: int,
     straight_triplet_count: int = 0,
-    **legacy: int,
 ) -> bool:
     """Return True if player can triplet-call the discard."""
-    if "chow_pong_count" in legacy:
-        straight_triplet_count = legacy["chow_pong_count"]
     if not can_add_straight_triplet_call(pass_count, straight_triplet_count):
         return False
     return Counter(hand)[discard] >= 2
@@ -111,11 +105,8 @@ def can_direct_quad_call(
     discard: Tile,
     calls: list[Call] | None = None,
     has_declared_wait: bool = False,
-    **legacy: bool,
 ) -> bool:
     """Return True if player can direct-quad-call (大明槓) the discard."""
-    if "is_riichi" in legacy:
-        has_declared_wait = legacy["is_riichi"]
     if Counter(hand)[discard] < 3:
         return False
     if not has_declared_wait:
@@ -189,7 +180,6 @@ def legal_claims(
     win_flags: WinFlags | None = None,
     face_down: bool = False,
     has_declared_wait: bool = False,
-    **legacy: bool,
 ) -> dict:
     """
     Compute the full set of legal claims this player can make on a discard.
@@ -205,10 +195,6 @@ def legal_claims(
     Face-down discards (rang_guo) cannot be claimed.
     """
     win_flags = win_flags or WinFlags()
-    if "is_riichi" in legacy:
-        has_declared_wait = legacy["is_riichi"]
-    if "chow_pong_count" in legacy:
-        straight_triplet_count = legacy["chow_pong_count"]
     if face_down:
         return _claims_result([], False, False, False)
 
@@ -231,17 +217,4 @@ def _claims_result(straight_calls: list[Call], triplet_call: bool, direct_quad_c
         'win': win,
         'skip': True,
     }
-    result['chow'] = result['straight_call']
-    result['pong'] = result['triplet_call']
-    result['kong'] = result['direct_quad_call']
     return result
-
-
-# Legacy aliases; new code should use the straight/triplet/quad names above.
-chow_pong_limit = straight_triplet_limit
-can_add_chow_pong = can_add_straight_triplet_call
-can_chow = can_straight_call
-can_pong = can_triplet_call
-can_open_kong = can_direct_quad_call
-can_added_kong = can_upgraded_quad_declare
-can_concealed_kong = can_concealed_quad_declare

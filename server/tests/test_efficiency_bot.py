@@ -1,6 +1,6 @@
 from bots.efficiency_bot import EfficiencyBot
 from bots.auto_call_bot import AutoCallBot
-from game.room import _make_players
+from game.player_state import PlayerState
 
 
 def test_efficiency_bot_never_calls_but_wins():
@@ -17,7 +17,12 @@ def test_efficiency_bot_discards_junk_to_reach_wait():
 
 
 def test_bot_seats_put_call_bot_upstream_of_human():
-    players = _make_players()
-    assert isinstance(players[1]._bot, EfficiencyBot)
-    assert isinstance(players[2]._bot, EfficiencyBot)
-    assert isinstance(players[3]._bot, AutoCallBot)
+    players = [
+        PlayerState(seat=0, name='Guest'),
+        PlayerState(seat=1, name='Bot-1', is_bot=True, bot=EfficiencyBot()),
+        PlayerState(seat=2, name='Bot-2', is_bot=True, bot=EfficiencyBot()),
+        PlayerState(seat=3, name='Bot-3', is_bot=True, bot=AutoCallBot()),
+    ]
+    assert isinstance(players[1].bot, EfficiencyBot)
+    assert isinstance(players[2].bot, EfficiencyBot)
+    assert isinstance(players[3].bot, AutoCallBot)

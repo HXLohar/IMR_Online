@@ -80,12 +80,12 @@ class Match:
         for seat, slot in enumerate(seats):
             p = PlayerState(seat=seat, name=slot.username or slot.bot or f'Seat {seat}', is_bot=slot.is_bot)
             if slot.bot == 'auto_call':
-                p._bot = AutoCallBot()
+                p.bot = AutoCallBot()
             elif slot.bot == 'discard_only':
                 from bots.discard_only_bot import DiscardOnlyBot
-                p._bot = DiscardOnlyBot()
+                p.bot = DiscardOnlyBot()
             else:
-                p._bot = EfficiencyBot()
+                p.bot = EfficiencyBot()
             players.append(p)
         self.game = GameState(players, self._send_seat, self._broadcast, seed=self.seed,
                               hand_complete_fn=self._hand_complete, timeout_fn=self._game_timeout)

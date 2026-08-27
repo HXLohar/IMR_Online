@@ -16,13 +16,12 @@ A player may redraw on a just-drawn tile if ANY of these conditions hold:
 from __future__ import annotations
 from collections import Counter
 
-from game.tiles import Tile, TileType
+from game.tiles import Tile
 
 
 def is_redraw_eligible(
     drawn_tile: Tile,
     own_river: list[Tile],          # tiles this player has discarded (face-up only)
-    own_open_calls: list[list[Tile]],  # tiles in this player's open call groups
     all_visible_tiles: list[Tile],  # ALL tiles visible on the table (rivers + open calls)
 ) -> bool:
     """
