@@ -37,6 +37,8 @@ def test_lobby_separates_queue_lengths_and_allows_private_rooms():
         lobby = Lobby(send, broadcast)
         room = await lobby.create_room(1, 'alice', 4, 'private')
         assert room.code
+        assert room.visibility == 'private'
+        assert 10_000_000 <= int(room.id) <= 99_999_999
         await lobby.join_room(2, 'bob', code=room.code)
         await lobby.set_config(1, 4, {'2': 'efficiency', '3': 'auto_call'})
         assert len(room.users()) == 2
@@ -52,6 +54,31 @@ def test_lobby_separates_queue_lengths_and_allows_private_rooms():
     asyncio.run(run())
 
 
+def test_practice_mode_and_internal_test_room():
+    sent = []
+
+    async def send(user_id, msg):
+        sent.append((user_id, msg))
+
+    async def broadcast(user_ids, msg):
+        sent.append((user_ids, msg))
+
+    async def run():
+        lobby = Lobby(send, broadcast)
+        test_room = lobby.rooms['63549000']
+        assert test_room.visibility == 'private'
+        assert [seat.username for seat in test_room.seats] == ['', 'Bot_A', 'Bot_B', '']
+        assert all(seat.is_bot for seat in test_room.seats[1:3])
+        assert all(not seat.is_bot for seat in (test_room.seats[0], test_room.seats[3]))
+
+        match = await lobby.start_practice(99, 'solo')
+        assert match.mode == 'practice'
+        assert [seat.username for seat in match.seats] == ['solo', 'Bot_A', 'Bot_B', 'Bot_C']
+        assert all(seat.is_bot for seat in match.seats[1:])
+
+    asyncio.run(run())
+
+
 def test_http_auth_round_trip(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
     from app import app
@@ -61,6 +88,7 @@ def test_http_auth_round_trip(tmp_path, monkeypatch):
         assert client.get('/healthz').json() == {'status': 'ok'}
         assert client.get('/').status_code == 200
         assert client.get('/auth-hero.png').status_code == 200
+        assert client.get('/lobby-bg.png').status_code == 200
         registered = client.post('/api/auth/register', json={'username': 'web_user', 'password': 'long enough password'})
         assert registered.status_code == 200
         assert client.get('/api/me').status_code == 200
@@ -71,10 +99,13 @@ def test_http_auth_round_trip(tmp_path, monkeypatch):
 
 def test_protocol_validates_lobby_and_game_messages():
     assert parse_client_message({'type': 'create_room', 'length': 4, 'visibility': 'private'}).length == 4
+    assert parse_client_message({'type': 'practice_start'}).type == 'practice_start'
     assert parse_client_message({'type': 'discard', 'tile': '1b'}).tile == '1b'
     assert parse_client_message({'type': 'set_room_config', 'bots': {'1': 'efficiency'}}).bots['1'] == 'efficiency'
     with pytest.raises(ValidationError):
         parse_client_message({'type': 'create_room', 'length': 2})
+    with pytest.raises(ValidationError):
+        parse_client_message({'type': 'create_room', 'visibility': 'public'})
     with pytest.raises(ValidationError):
         parse_client_message({'type': 'join_room'})
     with pytest.raises(ValidationError):

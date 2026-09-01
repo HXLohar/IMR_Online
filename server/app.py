@@ -142,13 +142,15 @@ async def handle_ws_message(user: dict, msg: dict) -> None:
     user_id = user['id']
     kind = msg.get('type')
     if kind == 'create_room':
-        room = await lobby.create_room(user_id, user['username'], int(msg.get('length', 1)), msg.get('visibility', 'public'))
+        room = await lobby.create_room(user_id, user['username'], int(msg.get('length', 1)), 'private')
         await room_state(room)
     elif kind == 'join_room':
         room = await lobby.join_room(user_id, user['username'], msg.get('room_id'), msg.get('code'))
         await room_state(room)
+        if room.id == '63549000':
+            await lobby.start_test_room(room)
     elif kind == 'set_room_config':
-        room = await lobby.set_config(user_id, int(msg.get('length', 1)), msg.get('bots', {}))
+        room = await lobby.set_config(user_id, int(msg.get('length', 1)), {})
         await room_state(room)
     elif kind == 'start_room':
         await lobby.start_room(user_id)
@@ -157,6 +159,8 @@ async def handle_ws_message(user: dict, msg: dict) -> None:
     elif kind == 'queue_leave':
         length = int(msg.get('length', 1))
         await lobby.leave_queue(user_id, length)
+    elif kind == 'practice_start':
+        await lobby.start_practice(user_id, user['username'])
     elif kind == 'leave_room':
         await lobby.leave_room(user_id)
     elif kind == 'discard':
@@ -230,6 +234,12 @@ if dist_index.exists():
         @app.get('/auth-hero.png')
         async def auth_hero_file():
             return FileResponse(auth_hero)
+
+    lobby_background = dist_index.parent / 'lobby-bg.png'
+    if lobby_background.exists():
+        @app.get('/lobby-bg.png')
+        async def lobby_background_file():
+            return FileResponse(lobby_background)
 
     @app.get('/')
     async def index():

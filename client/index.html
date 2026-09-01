@@ -19,6 +19,22 @@
     #app.auth-mode { max-width: none; padding: 0; min-height: 100vh; }
     #app.auth-mode > #status-bar { display: none; }
     #app.auth-mode > #log-container { display: none; }
+    #language-picker {
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      color: #d9e4db;
+      background: rgba(9, 23, 18, .88);
+      border: 1px solid #496455;
+      border-radius: 7px;
+      font-size: 12px;
+    }
+    #language-select { margin: 0; padding: 4px 6px; color: #f5fbf6; background: #14271f; border: 1px solid #385246; border-radius: 5px; }
     #status-bar {
       background: #111;
       padding: 6px 12px;
@@ -209,11 +225,11 @@
       border-radius: 2px;
       margin-left: 4px;
     }
-    .screen { background: rgba(0,0,0,.28); border-radius: 10px; padding: 18px; margin-bottom: 12px; }
+    .screen { min-width: 0; background: rgba(0,0,0,.28); border-radius: 10px; padding: 18px; margin-bottom: 12px; }
     .screen h1, .screen h2 { color: #ffd700; margin-bottom: 12px; }
-    .screen input, .screen select { padding: 8px; border-radius: 5px; border: 1px solid #777; margin: 4px; }
-    .screen button { margin: 4px; }
-    .room-card { border: 1px solid #477447; border-radius: 8px; padding: 10px; margin: 8px 0; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .screen input, .screen select { max-width: 100%; padding: 8px; border-radius: 5px; border: 1px solid #777; margin: 4px; }
+    .screen button { max-width: 100%; margin: 4px; overflow-wrap: anywhere; }
+    .room-card { border: 1px solid #477447; border-radius: 8px; padding: 10px; margin: 8px 0; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
     .seat-grid { display:grid; grid-template-columns:repeat(2, minmax(160px, 1fr)); gap:8px; margin:12px 0; }
     .seat-card { background:rgba(255,255,255,.08); padding:8px; border-radius:6px; }
     #auth-error, #lobby-error, #room-error { color:#ffaaaa; min-height:20px; }
@@ -324,6 +340,7 @@
     .auth-field input:focus { border-color: #d7b96d; box-shadow: 0 0 0 3px rgba(215, 185, 109, .12); }
     .auth-actions { display: grid; gap: 10px; margin-top: 8px; }
     .auth-actions button { width: 100%; margin: 0; padding: 12px 16px; border-radius: 8px; }
+    .auth-actions button { overflow-wrap: anywhere; }
     .auth-actions .primary { color: #122018; background: #d7b96d; }
     .auth-actions .primary:hover:not(:disabled) { background: #efd28a; }
     .auth-actions .secondary { color: #dce9df; background: transparent; border: 1px solid #496455; }
@@ -337,93 +354,365 @@
       .auth-visual h2 { font-size: 34px; }
       .auth-panel { min-height: 62vh; align-items: flex-start; padding: 36px 28px 48px; }
     }
+
+    /* Signed-in lobby and room shell */
+    #shell-header { display: none; }
+    #app.auth-mode #shell-header {
+      display: block;
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      z-index: 200;
+    }
+    #app.auth-mode .shell-brand, #app.auth-mode .shell-user { display: none; }
+    #app.auth-mode #language-picker { position: static; }
+    #app.shell-mode {
+      max-width: none;
+      min-height: 100vh;
+      padding: 0;
+      background:
+        linear-gradient(180deg, rgba(4, 15, 11, .72), rgba(4, 15, 11, .84)),
+        url('/lobby-bg.png') center / cover no-repeat fixed;
+    }
+    #app.shell-mode #shell-header { display: block; padding: 18px 24px 0; }
+    .shell-header-inner {
+      width: min(100%, 1200px);
+      min-height: 64px;
+      margin: 0 auto;
+      padding: 10px 12px 10px 18px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      background: rgba(8, 25, 18, .84);
+      border: 1px solid rgba(215, 185, 109, .22);
+      border-radius: 14px;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, .22);
+      backdrop-filter: blur(14px);
+    }
+    .shell-brand { margin-right: auto; color: #fff8e6; font-weight: 700; letter-spacing: .1em; }
+    .shell-brand small { display: block; margin-top: 3px; color: #d7b96d; font-size: 10px; letter-spacing: .18em; }
+    .shell-user { display: flex; align-items: center; gap: 8px; color: #d9e4db; font-size: 13px; }
+    #app.shell-mode #language-picker {
+      position: static;
+      order: 2;
+      flex: 0 0 auto;
+      background: rgba(20, 39, 31, .72);
+    }
+    .shell-user button { margin: 0; padding: 7px 11px; font-size: 12px; }
+    #app.shell-mode > #status-bar {
+      width: min(calc(100% - 48px), 1200px);
+      min-height: 38px;
+      margin: 12px auto 0;
+      padding: 9px 14px;
+      color: #d8e6db;
+      background: rgba(8, 25, 18, .72);
+      border: 1px solid rgba(215, 185, 109, .14);
+      border-radius: 10px;
+      backdrop-filter: blur(10px);
+    }
+    #app.shell-mode > #log-container { display: none; }
+    .shell-screen {
+      width: min(100%, 1248px);
+      margin: 0 auto;
+      padding: 26px 24px 48px;
+      background: transparent;
+      border-radius: 0;
+    }
+    .shell-heading { margin-bottom: 18px; }
+    .shell-heading h1 { margin-bottom: 7px; color: #fff8e6; font-size: clamp(28px, 4vw, 42px); }
+    .shell-heading p { max-width: 620px; color: #afc2b5; line-height: 1.65; }
+    .shell-kicker { margin-bottom: 6px; color: #d7b96d !important; font-size: 11px; font-weight: 700; letter-spacing: .2em; }
+    .lobby-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, .9fr); gap: 18px; }
+    .lobby-column { display: grid; align-content: start; gap: 18px; min-width: 0; }
+    .shell-panel {
+      min-width: 0;
+      padding: 22px;
+      background: rgba(8, 26, 19, .86);
+      border: 1px solid rgba(216, 199, 153, .18);
+      border-radius: 16px;
+      box-shadow: 0 18px 54px rgba(0, 0, 0, .23);
+      backdrop-filter: blur(16px);
+    }
+    .shell-panel h2 { margin-bottom: 6px; color: #fff8e6; font-size: 20px; }
+    .panel-description { margin-bottom: 18px; color: #91a79a; font-size: 13px; line-height: 1.6; }
+    .quick-match-panel {
+      padding: clamp(24px, 5vw, 38px);
+      background: linear-gradient(135deg, rgba(23, 69, 45, .95), rgba(8, 27, 20, .94));
+      border-color: rgba(215, 185, 109, .42);
+    }
+    .quick-match-panel h2 { font-size: clamp(24px, 3vw, 32px); }
+    .form-row { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; }
+    .form-field { display: grid; flex: 1 1 170px; gap: 7px; min-width: 0; }
+    .form-field label { color: #c8d7cc; font-size: 12px; font-weight: 600; }
+    .shell-panel input, .shell-panel select {
+      width: 100%;
+      min-height: 44px;
+      margin: 0;
+      padding: 10px 12px;
+      color: #f4f8f5;
+      background: rgba(20, 39, 31, .92);
+      border: 1px solid #496455;
+      border-radius: 9px;
+    }
+    .shell-panel select option { color: #111; background: #fff; }
+    .shell-panel button { min-height: 44px; margin: 0; border-radius: 9px; }
+    button.primary-action { color: #142017; background: #d7b96d; }
+    button.primary-action:hover:not(:disabled) { background: #efd28a; }
+    button.secondary-action { background: #3f7445; }
+    button.secondary-action:hover:not(:disabled) { background: #528d58; }
+    button.ghost-action { color: #d8e6db; background: transparent; border: 1px solid #496455; }
+    button.ghost-action:hover:not(:disabled) { background: rgba(255, 255, 255, .07); }
+    button.danger-action { color: #ffcaca; background: rgba(128, 35, 35, .24); border: 1px solid rgba(255, 130, 130, .36); }
+    button.danger-action:hover:not(:disabled) { background: rgba(153, 43, 43, .44); }
+    .room-list-panel { min-height: 250px; }
+    #room-list { display: grid; gap: 10px; }
+    #room-list.room-list-empty {
+      min-height: 138px;
+      place-items: center;
+      padding: 24px;
+      color: #91a79a;
+      text-align: center;
+      border: 1px dashed rgba(150, 178, 158, .3);
+      border-radius: 12px;
+    }
+    .room-card {
+      margin: 0;
+      padding: 13px 14px;
+      background: rgba(255, 255, 255, .035);
+      border-color: rgba(132, 169, 139, .28);
+    }
+    .room-card small { color: #91a79a; }
+    .private-room-form { display: grid; gap: 10px; }
+    .profile-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 16px 0; }
+    .profile-stat { padding: 12px; background: rgba(255, 255, 255, .045); border-radius: 10px; }
+    .profile-stat span { display: block; color: #8fa597; font-size: 11px; }
+    .profile-stat strong { display: block; margin-top: 5px; color: #fff8e6; font-size: 22px; }
+    #lobby-error, #room-error { margin-top: 12px; }
+    .room-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, .7fr); gap: 18px; }
+    .room-meta { display: inline-flex; padding: 6px 10px; color: #d7b96d; background: rgba(215, 185, 109, .09); border-radius: 7px; }
+    .room-table-panel .seat-grid { margin: 18px 0 0; }
+    .room-table-panel .seat-card {
+      min-height: 118px;
+      display: grid;
+      align-content: center;
+      gap: 10px;
+      padding: 18px;
+      color: #eef5ef;
+      background: linear-gradient(145deg, rgba(64, 105, 72, .24), rgba(255, 255, 255, .035));
+      border: 1px solid rgba(137, 174, 145, .2);
+      border-radius: 12px;
+    }
+    .room-table-panel .seat-card select { margin: 0; }
+    .room-settings-panel { display: grid; align-content: start; gap: 14px; }
+    .room-actions { display: grid; gap: 9px; }
+    .profile-section { margin-top: 18px; }
+    .profile-section-header { display: flex; align-items: start; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
+    .profile-section-header h2 { margin-bottom: 6px; }
+    .profile-section .profile-stats { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    #profile-replays { display: grid; gap: 9px; margin-top: 12px; }
+    .replay-item { padding: 12px 14px; background: rgba(255, 255, 255, .04); border-radius: 10px; }
+    .replay-item summary { cursor: pointer; color: #e8f0ea; }
+    .replay-item button { margin: 10px 0 0; }
+    .replay-item pre { max-height: 260px; margin-top: 10px; padding: 12px; overflow: auto; color: #c9d7cc; background: #07130e; border-radius: 8px; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+    @media (max-width: 820px) {
+      #app.shell-mode { background-attachment: scroll; }
+      #app.shell-mode #shell-header { padding: 10px 12px 0; }
+      .shell-header-inner { flex-wrap: wrap; gap: 10px; padding: 11px 12px; }
+      .shell-brand { flex: 1 1 auto; }
+      .shell-user { order: 3; flex: 1 0 100%; justify-content: space-between; }
+      #app.shell-mode #language-picker { margin-left: auto; }
+      #app.shell-mode > #status-bar { width: calc(100% - 24px); }
+      .shell-screen { padding: 22px 12px 36px; }
+      .lobby-layout, .room-layout { grid-template-columns: 1fr; }
+      .room-settings-panel { order: -1; }
+      .profile-section .profile-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @media (max-width: 480px) {
+      .shell-heading h1 { font-size: 28px; }
+      .shell-panel { padding: 18px; }
+      .form-row { align-items: stretch; }
+      .form-row > button { width: 100%; }
+      .shell-user { flex-wrap: wrap; }
+      .shell-user #lobby-user { flex: 1 0 100%; }
+      .seat-grid { grid-template-columns: 1fr; }
+      .profile-section .profile-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
   </style>
 </head>
 <body>
   <div id="app" class="auth-mode">
+    <header id="shell-header">
+      <div class="shell-header-inner">
+        <div class="shell-brand">IMR ONLINE<small data-i18n="auth.brand">麻將線上對局</small></div>
+        <div id="language-picker">
+          <label for="language-select" data-i18n="language.label">語言</label>
+          <select id="language-select" data-i18n-aria-label="language.label" aria-label="語言">
+            <option value="zh-Hant" data-i18n="language.zhHant">繁體中文</option>
+            <option value="zh-Hans" data-i18n="language.zhHans">簡體中文</option>
+            <option value="en" data-i18n="language.en">English</option>
+          </select>
+        </div>
+        <div class="shell-user">
+          <span id="lobby-user"></span>
+          <button id="profile-btn" class="ghost-action" aria-controls="profile-box" aria-expanded="false" data-i18n="common.profile">個人資料</button>
+          <button id="logout-btn" class="danger-action" data-i18n="common.logout">登出</button>
+        </div>
+      </div>
+    </header>
+    <div id="status-bar" role="status" aria-live="polite">連接中…</div>
     <section id="auth-screen" class="screen auth-screen">
       <div class="auth-visual">
-        <img src="/auth-hero.png" alt="幾張麻將牌擺放在綠色牌桌上" />
+        <img src="/auth-hero.png" data-i18n-alt="auth.hero.alt" alt="幾張麻將牌擺放在綠色牌桌上" />
         <div class="auth-visual-copy">
           <div class="auth-kicker">IMR ONLINE</div>
-          <h2>牌局，從這裡開始。</h2>
-          <p>登入你的帳號，和牌友一起享受每一手牌的節奏。</p>
+          <h2 data-i18n="auth.hero.title">牌局，從這裡開始。</h2>
+          <p data-i18n="auth.hero.description">登入你的帳號，和牌友一起享受每一手牌的節奏。</p>
         </div>
       </div>
       <div class="auth-panel">
         <div class="auth-card">
-          <div class="auth-brand">麻將線上對局</div>
-          <h1>歡迎回來</h1>
-          <p class="auth-subtitle">登入後即可加入牌局</p>
+          <div class="auth-brand" data-i18n="auth.brand">麻將線上對局</div>
+          <h1 id="auth-title" data-i18n="auth.login.title">歡迎回來</h1>
+          <p id="auth-subtitle" class="auth-subtitle" data-i18n="auth.login.subtitle">登入後即可加入牌局</p>
           <form id="login-form" class="auth-form">
             <div class="auth-field">
-              <label for="auth-username">帳號</label>
-              <input id="auth-username" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_-]+" autocomplete="username" placeholder="請輸入帳號" />
+              <label for="auth-username" data-i18n="auth.username.label">帳號</label>
+              <input id="auth-username" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_-]+" autocomplete="username" data-i18n-placeholder="auth.username.placeholder" placeholder="請輸入帳號" />
             </div>
             <div class="auth-field">
-              <label for="auth-password">密碼</label>
-              <input id="auth-password" required minlength="8" type="password" autocomplete="current-password" placeholder="至少 8 個字元" />
+              <label for="auth-password" data-i18n="auth.password.label">密碼</label>
+              <input id="auth-password" required minlength="8" type="password" autocomplete="current-password" data-i18n-placeholder="auth.password.placeholder" placeholder="至少 8 個字元" />
             </div>
             <div class="auth-actions">
-              <button class="primary" type="submit" value="login">登入</button>
-              <button class="secondary" type="submit" id="register-btn" value="register">建立新帳號</button>
+              <button class="primary" type="submit" id="auth-submit" data-i18n="auth.login.submit">登入</button>
+              <button class="secondary" type="button" id="auth-switch" data-i18n="auth.login.switch">建立新帳號</button>
             </div>
           </form>
           <div id="auth-error" role="alert" aria-live="polite"></div>
-          <p class="auth-help">帳號僅能使用英文字母、數字、底線與連字號。</p>
+          <p class="auth-help" data-i18n="auth.help">帳號僅能使用英文字母、數字、底線與連字號。</p>
         </div>
       </div>
     </section>
-    <section id="lobby-screen" class="screen" style="display:none">
-      <h1>大廳</h1>
-      <div id="lobby-user"></div>
-      <button id="logout-btn">登出</button>
-      <button id="profile-btn">個人資料</button>
-      <h2>快速配桌</h2>
-      <select id="queue-length"><option value="1">1 局</option><option value="4">1 圈（4 局）</option><option value="8">2 圈（8 局）</option></select>
-      <button id="queue-btn">尋找牌友</button>
-      <button id="queue-cancel-btn" style="display:none">取消排隊</button>
-      <h2>建立房間</h2>
-      <select id="room-length"><option value="1">1 局</option><option value="4">1 圈（4 局）</option><option value="8">2 圈（8 局）</option></select>
-      <select id="room-visibility"><option value="public">公開房間</option><option value="private">私人代碼</option></select>
-      <button id="create-room-btn">建立房間</button>
-      <h2>房間列表</h2><div id="room-list"></div>
-      <input id="join-code" placeholder="輸入私人房間代碼" /><button id="join-code-btn">加入房間</button>
+    <section id="lobby-screen" class="screen shell-screen" style="display:none">
+      <div class="shell-heading">
+        <p class="shell-kicker">IMR ONLINE</p>
+        <h1 data-i18n="lobby.title">大廳</h1>
+        <p data-i18n="lobby.subtitle">選擇一場牌局，或建立自己的牌桌。</p>
+      </div>
+      <div class="lobby-layout">
+        <div class="lobby-column">
+          <article class="shell-panel quick-match-panel">
+            <h2 data-i18n="lobby.queue.title">快速配桌</h2>
+            <p class="panel-description" data-i18n="lobby.queue.description">選擇牌局長度，我們會替你找到三位牌友。</p>
+            <div class="form-row">
+              <div class="form-field">
+                <label for="queue-length" data-i18n="lobby.lengthLabel">牌局長度</label>
+                <select id="queue-length"><option value="1" data-i18n="common.oneHand">1 局</option><option value="4" data-i18n="common.oneRound">1 圈（4 局）</option><option value="8" data-i18n="common.twoRounds">2 圈（8 局）</option></select>
+              </div>
+              <button id="queue-btn" class="primary-action" data-i18n="lobby.queue.find">尋找牌友</button>
+              <button id="queue-cancel-btn" class="danger-action" data-i18n="lobby.queue.cancel" style="display:none">取消排隊</button>
+            </div>
+          </article>
+          <article class="shell-panel practice-panel">
+            <h2 data-i18n="lobby.practice.title">練習模式</h2>
+            <p class="panel-description" data-i18n="lobby.practice.description">和三位自動摸打的機器人對戰，不計入正式戰績。</p>
+            <button id="practice-btn" class="ghost-action" data-i18n="lobby.practice.start">開始練習</button>
+          </article>
+          <article class="shell-panel room-list-panel">
+            <h2 data-i18n="lobby.room.listTitle">房間列表</h2>
+            <p class="panel-description" data-i18n="lobby.room.listDescription">加入內測房間，或使用牌友分享的私人代碼。</p>
+            <div id="room-list"></div>
+          </article>
+        </div>
+        <aside class="lobby-column">
+          <article class="shell-panel">
+            <h2 data-i18n="lobby.room.createTitle">建立房間</h2>
+            <p class="panel-description" data-i18n="lobby.room.createDescription">自訂牌局長度和房間類型。</p>
+            <div class="private-room-form">
+              <div class="form-field">
+                <label for="room-length" data-i18n="lobby.lengthLabel">牌局長度</label>
+                <select id="room-length"><option value="1" data-i18n="common.oneHand">1 局</option><option value="4" data-i18n="common.oneRound">1 圈（4 局）</option><option value="8" data-i18n="common.twoRounds">2 圈（8 局）</option></select>
+              </div>
+              <button id="create-room-btn" class="secondary-action" data-i18n="lobby.room.create">建立房間</button>
+            </div>
+          </article>
+          <article class="shell-panel">
+            <h2 data-i18n="lobby.room.joinTitle">加入私人房間</h2>
+            <p class="panel-description" data-i18n="lobby.room.joinDescription">輸入牌友分享的邀請代碼。</p>
+            <div class="private-room-form">
+              <label class="form-field" for="join-code">
+                <span data-i18n="lobby.room.codeLabel">邀請代碼</span>
+                <input id="join-code" data-i18n-placeholder="lobby.room.joinCodePlaceholder" placeholder="輸入私人房間代碼" />
+              </label>
+              <button id="join-code-btn" class="secondary-action" data-i18n="lobby.room.join">加入房間</button>
+            </div>
+          </article>
+        </aside>
+      </div>
+      <section id="profile-box" class="shell-panel profile-section" style="display:none" aria-live="polite">
+        <div class="profile-section-header">
+          <div>
+            <h2 data-i18n="profile.dialogTitle">個人資料</h2>
+            <p class="panel-description" data-i18n="profile.sectionDescription">完整戰績與最近對局紀錄。</p>
+          </div>
+          <button id="profile-collapse-btn" class="ghost-action" data-i18n="profile.hide">收起個人資料</button>
+        </div>
+        <div id="profile-content"></div>
+      </section>
       <div id="lobby-error" role="alert" aria-live="polite"></div>
-      <div id="profile-box" style="display:none"></div>
     </section>
-    <section id="room-screen" class="screen" style="display:none">
-      <h1>房間 <span id="room-id"></span></h1>
-      <div id="room-code"></div>
-      <div class="seat-grid" id="room-seats"></div>
-      <select id="config-length"><option value="1">1 局</option><option value="4">1 圈（4 局）</option><option value="8">2 圈（8 局）</option></select>
-      <button id="save-config-btn">儲存設定</button>
-      <button id="start-room-btn">開始</button>
-      <button id="leave-room-btn">離開</button>
-      <div id="room-error" role="alert" aria-live="polite"></div>
+    <section id="room-screen" class="screen shell-screen" style="display:none">
+      <div class="shell-heading">
+        <p class="shell-kicker">IMR ONLINE</p>
+        <h1 id="room-title">房間</h1>
+        <div id="room-code" class="room-meta"></div>
+      </div>
+      <div class="room-layout">
+        <article class="shell-panel room-table-panel">
+          <h2 data-i18n="room.seatsTitle">牌桌座位</h2>
+          <p class="panel-description" data-i18n="room.seatsDescription">四個座位就緒後即可開始牌局。</p>
+          <div class="seat-grid" id="room-seats"></div>
+        </article>
+        <aside class="shell-panel room-settings-panel">
+          <div>
+            <h2 data-i18n="room.settingsTitle">房間設定</h2>
+            <p class="panel-description" data-i18n="room.settingsDescription">房主可調整牌局長度；每個座位都等待真人玩家。</p>
+          </div>
+          <div class="form-field">
+            <label for="config-length" data-i18n="lobby.lengthLabel">牌局長度</label>
+            <select id="config-length"><option value="1" data-i18n="common.oneHand">1 局</option><option value="4" data-i18n="common.oneRound">1 圈（4 局）</option><option value="8" data-i18n="common.twoRounds">2 圈（8 局）</option></select>
+          </div>
+          <div class="room-actions">
+            <button id="start-room-btn" class="primary-action" data-i18n="common.start">開始</button>
+            <button id="save-config-btn" class="secondary-action" data-i18n="common.save">儲存設定</button>
+            <button id="leave-room-btn" class="danger-action" data-i18n="common.leave">離開</button>
+          </div>
+          <div id="room-error" role="alert" aria-live="polite"></div>
+        </aside>
+      </div>
     </section>
-    <div id="status-bar" role="status" aria-live="polite">連接中…</div>
     <div class="board" id="board" style="display:none">
       <!-- Four-way table; labels and seats are filled from the authoritative snapshot. -->
       <div id="opp-top" class="player-section opponent-row">
-        <div class="section-label">對家</div>
+          <div class="section-label" data-i18n="seat.opposite">對家</div>
         <div class="river-area" id="river-2"></div>
         <div class="calls-area" id="calls-2"></div>
       </div>
       <div class="center-area">
         <div id="opp-left" class="player-section" style="flex:0 0 220px">
-          <div class="section-label">上家</div>
+          <div class="section-label" data-i18n="seat.previous">上家</div>
           <div class="river-area" id="river-3"></div>
           <div class="calls-area" id="calls-3"></div>
         </div>
         <div style="flex:1;text-align:center">
-          <div id="wall-counter">牌牆: --</div>
+          <div id="wall-counter" data-i18n="board.wall">牌牆：--</div>
           <div id="round-label" style="font-size:12px;color:#aaa;margin-top:4px"></div>
           <div id="current-seat-label" style="font-size:12px;color:#aaa;margin-top:4px" aria-live="polite"></div>
           <div id="deadline-label" style="font-size:14px;color:#ffd700;margin-top:4px" aria-live="polite"></div>
         </div>
         <div id="opp-right" class="player-section" style="flex:0 0 220px">
-          <div class="section-label">下家</div>
+          <div class="section-label" data-i18n="seat.next">下家</div>
           <div class="river-area" id="river-1"></div>
           <div class="calls-area" id="calls-1"></div>
         </div>
@@ -431,8 +720,8 @@
       <!-- Player area -->
       <div class="player-section" id="player-area">
         <div class="section-label">
-          自家
-          <span class="declare-wait-badge" id="declare-wait-badge" style="display:none">報聽</span>
+          <span id="player-relation" data-i18n="seat.self">自家</span>
+          <span class="declare-wait-badge" id="declare-wait-badge" data-i18n="board.waitBadge" style="display:none">報聽</span>
         </div>
         <div class="calls-area" id="calls-0"></div>
         <div class="river-area" id="river-0" style="margin-bottom:8px"></div>
@@ -442,17 +731,17 @@
     </div>
     <div id="log-container" aria-live="polite">
       <div id="log-header">
-        <span>對局紀錄</span>
-        <button id="btn-export-log">匯出紀錄（.log）</button>
+        <span data-i18n="board.log.title">對局紀錄</span>
+        <button id="btn-export-log" data-i18n="board.log.export">匯出紀錄（.log）</button>
       </div>
       <div id="log"></div>
     </div>
   </div>
   <div id="result-overlay" class="hidden">
     <div id="result-box">
-      <h2 id="result-title">結算</h2>
+      <h2 id="result-title" data-i18n="result.handSettlement">結算</h2>
       <div id="result-body"></div>
-      <button id="btn-new-game" style="margin-top:16px">新局</button>
+      <button id="btn-new-game" data-i18n="result.newGame" style="margin-top:16px">新局</button>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>

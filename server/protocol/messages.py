@@ -43,7 +43,7 @@ class SelfActionMsg(ProtocolMessage):
 class CreateRoomMsg(ProtocolMessage):
     type: Literal['create_room'] = 'create_room'
     length: MatchLength = 1
-    visibility: Literal['public', 'private'] = 'public'
+    visibility: Literal['private'] = 'private'
 
 
 class JoinRoomMsg(ProtocolMessage):
@@ -78,6 +78,10 @@ class QueueLeaveMsg(ProtocolMessage):
     length: MatchLength = 1
 
 
+class PracticeStartMsg(ProtocolMessage):
+    type: Literal['practice_start'] = 'practice_start'
+
+
 class LeaveRoomMsg(ProtocolMessage):
     type: Literal['leave_room'] = 'leave_room'
 
@@ -90,7 +94,7 @@ ClientMessage = Annotated[
     Union[
         DiscardMsg, ClaimMsg, SelfActionMsg,
         CreateRoomMsg, JoinRoomMsg, SetRoomConfigMsg, StartRoomMsg,
-        QueueJoinMsg, QueueLeaveMsg, LeaveRoomMsg, ResumeMsg,
+        QueueJoinMsg, QueueLeaveMsg, PracticeStartMsg, LeaveRoomMsg, ResumeMsg,
     ],
     Field(discriminator='type'),
 ]

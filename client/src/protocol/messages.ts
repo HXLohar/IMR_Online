@@ -1,5 +1,5 @@
 export type MatchLength = 1 | 4 | 8
-export type RoomVisibility = 'public' | 'private'
+export type RoomVisibility = 'private'
 export type BotType = 'efficiency' | 'auto_call' | 'discard_only'
 export type ClaimType = 'straight_call' | 'triplet_call' | 'direct_quad_call' | 'win' | 'skip'
 export type SelfActionType = 'tsumo' | 'concealed_quad_declare' | 'upgraded_quad_declare' | 'redraw' | 'declare_wait'
@@ -15,5 +15,6 @@ export type ClientMessage =
   | { type: 'start_room' }
   | { type: 'queue_join'; length?: MatchLength }
   | { type: 'queue_leave'; length?: MatchLength }
+  | { type: 'practice_start' }
   | { type: 'leave_room' }
   | { type: 'resume' }

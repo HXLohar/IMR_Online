@@ -2,56 +2,126 @@ import { connect, onMessage, send } from './net/ws'
 import { store, updateStore } from './state/store'
 import { renderBoard, setStatus, addLog, exportLog } from './render/board'
 import { renderControls, initKeyboardShortcuts } from './render/controls'
-import type { BotType, ClaimType, MatchLength, RoomVisibility } from './protocol/messages'
+import type { ClaimType, MatchLength } from './protocol/messages'
+import {
+  applyTranslations, formatDateTime, formatTime, getLocale, message, onLocaleChange, setLocale, t,
+  type TranslationKey,
+} from './i18n'
 
 let activeUser: { id: number; username: string } | null = null
+interface ProfileSummary {
+  games: number
+  wins: number
+  draws: number
+  losses: number
+  win_rate: number
+  average_score: number
+}
+interface ReplaySummary {
+  id: string
+  mode: string
+  length: number
+  finished_at: number
+  score: number
+  rank: number
+}
+let activeProfile: ProfileSummary | null = null
+let activeReplays: ReplaySummary[] = []
+let activeRoom: any | null = null
+let currentRooms: any[] = []
+let activeResult: Record<string, unknown> | null = null
 let connected = false
+type AuthMode = 'login' | 'register'
+let authMode: AuthMode = location.hash === '#register' ? 'register' : 'login'
+let authErrorDetail: unknown = undefined
+
+class ApiError extends Error {
+  constructor(readonly detail: unknown) {
+    super(formatApiError(detail))
+  }
+}
 
 function ui(id: string): HTMLElement { return document.getElementById(id)! }
 
 function showScreen(screen: 'auth' | 'lobby' | 'room' | 'game'): void {
+  const shellMode = screen === 'lobby' || screen === 'room'
   ui('app').classList.toggle('auth-mode', screen === 'auth')
+  ui('app').classList.toggle('shell-mode', shellMode)
+  ui('app').classList.toggle('game-mode', screen === 'game')
   ui('auth-screen').style.display = screen === 'auth' ? '' : 'none'
   ui('lobby-screen').style.display = screen === 'lobby' ? '' : 'none'
   ui('room-screen').style.display = screen === 'room' ? '' : 'none'
   ui('board').style.display = screen === 'game' ? '' : 'none'
+  const profileButton = ui('profile-btn') as HTMLButtonElement
+  profileButton.disabled = screen !== 'lobby'
+  if (screen !== 'lobby') {
+    ui('profile-box').style.display = 'none'
+    profileButton.setAttribute('aria-expanded', 'false')
+  }
+}
+
+function showAuth(mode: AuthMode, pushHistory = true): void {
+  authMode = mode
+  const hash = mode === 'register' ? '#register' : '#login'
+  if (pushHistory && location.hash !== hash) history.pushState(null, '', hash)
+  showScreen('auth')
+  ui('auth-title').dataset.i18n = `auth.${mode}.title`
+  ui('auth-subtitle').dataset.i18n = `auth.${mode}.subtitle`
+  ui('auth-submit').dataset.i18n = `auth.${mode}.submit`
+  ui('auth-switch').dataset.i18n = `auth.${mode}.switch`
+  ;(ui('auth-password') as HTMLInputElement).autocomplete = mode === 'register' ? 'new-password' : 'current-password'
+  authErrorDetail = undefined
+  ui('auth-error').textContent = ''
+  applyTranslations()
+}
+
+function clearAuthHash(): void {
+  if (location.hash === '#login' || location.hash === '#register') {
+    history.replaceState(null, '', `${location.pathname}${location.search}`)
+  }
 }
 
 async function api(path: string, options: RequestInit = {}): Promise<any> {
   const response = await fetch(path, { credentials: 'include', ...options,
     headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) } })
   const body = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(formatApiError(body.detail))
+  if (!response.ok) throw new ApiError(body.detail)
   return body
 }
 
 function formatApiError(detail: unknown): string {
-  const messages: Record<string, string> = {
-    'Username already exists': '此帳號已存在，請換一個帳號。',
-    'Invalid username or password': '帳號或密碼不正確。',
-    'Login required': '請先登入。',
-    'Request failed': '請求失敗，請稍後再試。',
+  const messages: Record<string, TranslationKey> = {
+    'Username already exists': 'error.usernameExists',
+    'Invalid username or password': 'error.invalidCredentials',
+    'Login required': 'error.loginRequired',
+    'Request failed': 'error.requestFailed',
   }
-  if (typeof detail === 'string') return messages[detail] ?? detail
+  if (typeof detail === 'string') return messages[detail] ? t(messages[detail]) : detail
   if (Array.isArray(detail)) {
     return detail.map((item) => {
       const error = item as { loc?: unknown[]; type?: string }
       const field = error.loc?.[error.loc.length - 1]
-      const name = field === 'username' ? '帳號' : field === 'password' ? '密碼' : '欄位'
-      if (error.type?.includes('missing')) return `請輸入${name}。`
-      if (error.type?.includes('min_length') || error.type?.includes('too_short')) return `${name}長度不足。`
-      if (error.type?.includes('max_length') || error.type?.includes('too_long')) return `${name}長度過長。`
-      if (error.type?.includes('pattern')) return '帳號只能使用英文字母、數字、底線與連字號。'
-      return `${name}格式不正確。`
+      const name = field === 'username' ? t('auth.username.label') : field === 'password' ? t('auth.password.label') : t('common.field')
+      if (error.type?.includes('missing')) return t('error.missing', { field: name })
+      if (error.type?.includes('min_length') || error.type?.includes('too_short')) return t('error.tooShort', { field: name })
+      if (error.type?.includes('max_length') || error.type?.includes('too_long')) return t('error.tooLong', { field: name })
+      if (error.type?.includes('pattern')) return t('error.usernamePattern')
+      return t('error.invalidField', { field: name })
     }).join(' ')
   }
-  return messages['Request failed']
+  return t('error.requestFailed')
 }
 
 function matchLength(value: string): MatchLength {
   const length = Number(value)
   if (length === 1 || length === 4 || length === 8) return length
   return 1
+}
+
+function matchLengthLabel(length: number): string {
+  if (length === 4) return t('common.oneRound')
+  if (length === 8) return t('common.twoRounds')
+  return t('common.oneHand')
 }
 
 function connectLobby(): void {
@@ -62,8 +132,10 @@ function connectLobby(): void {
 }
 
 function showLobby(): void {
+  activeRoom = null
   showScreen('lobby')
-  ui('lobby-user').textContent = activeUser ? `目前登入：${activeUser.username}` : ''
+  ui('lobby-user').textContent = activeUser ? t('lobby.user', { username: activeUser.username }) : ''
+  renderProfileSummary()
 }
 
 function applyMatchSnapshot(snapshot: Record<string, unknown>): void {
@@ -73,7 +145,7 @@ function applyMatchSnapshot(snapshot: Record<string, unknown>): void {
   for (const other of players) {
     if (other.seat === mySeat) continue
     others[other.seat] = {
-      seat: other.seat, name: other.name ?? `座位 ${other.seat}`, is_bot: other.is_bot ?? false,
+      seat: other.seat, name: other.name ?? t('seat.number', { seat: other.seat }), is_bot: other.is_bot ?? false,
       connected: other.connected ?? true, score: other.score ?? 0,
       hand_count: other.hand_count ?? 0, calls: other.calls ?? [], river: other.river ?? [],
       pass_count: other.pass_count ?? 0, straightTripletCount: other.straight_triplet_count ?? 0,
@@ -112,43 +184,51 @@ function applyMatchSnapshot(snapshot: Record<string, unknown>): void {
 }
 
 function renderRooms(rooms: any[]): void {
+  currentRooms = rooms
   const list = ui('room-list')
   list.innerHTML = ''
-  if (!rooms.length) { list.textContent = '目前沒有公開房間'; return }
+  list.classList.toggle('room-list-empty', !rooms.length)
+  if (!rooms.length) { list.textContent = t('lobby.room.empty'); return }
   for (const room of rooms) {
     const card = document.createElement('div')
     card.className = 'room-card'
     const names = room.seats.map((s: any) => s.name).join(', ')
-    card.innerHTML = `<span>${room.owner_name} · ${room.length} 局<br><small>${names}</small></span>`
+    const roomTitle = document.createElement('strong')
+    roomTitle.className = 'room-card-title'
+    roomTitle.textContent = `#${room.id}`
+    const summary = document.createElement('span')
+    summary.textContent = t('lobby.room.summary', { owner: room.owner_name, length: matchLengthLabel(Number(room.length)) })
+    const namesElement = document.createElement('small')
+    namesElement.textContent = names
+    summary.append(document.createElement('br'), namesElement)
     const button = document.createElement('button')
-    button.textContent = '加入'
+    button.textContent = t('common.join')
     button.onclick = () => send({ type: 'join_room', room_id: room.id })
-    card.appendChild(button)
+    card.append(roomTitle, summary, button)
     list.appendChild(card)
   }
 }
 
 function renderRoom(room: any): void {
+  activeRoom = room
   showScreen('room')
-  ui('room-id').textContent = room.id
-  ui('room-code').textContent = room.code ? `邀請代碼：${room.code}` : '公開房間'
+  ui('room-title').textContent = t('room.title', { id: room.id })
+  ui('room-code').textContent = room.code ? t('room.inviteCode', { code: room.code }) : t('lobby.room.private')
   ;(ui('config-length') as HTMLSelectElement).value = String(room.length)
+  const isOwner = room.owner_id !== null && room.owner_id === activeUser?.id
+  ;(ui('config-length') as HTMLSelectElement).disabled = !isOwner
+  ;(ui('start-room-btn') as HTMLButtonElement).disabled = !isOwner
+  ;(ui('save-config-btn') as HTMLButtonElement).disabled = !isOwner
   const seats = ui('room-seats')
   seats.innerHTML = ''
   room.seats.forEach((seat: any) => {
     const card = document.createElement('div')
     card.className = 'seat-card'
-    const connection = seat.is_bot || seat.connected ? '已連線' : '離線'
-    card.textContent = `座位 ${seat.seat}：${seat.name} · ${connection}`
-    if (!seat.user_id && room.owner_id === activeUser?.id && seat.seat > 0) {
-      const select = document.createElement('select')
-      select.dataset.seat = String(seat.seat)
-      select.innerHTML = '<option value="">真人玩家</option><option value="efficiency">效率 AI</option><option value="auto_call">自動鳴牌 AI</option><option value="discard_only">自動出牌 AI</option>'
-      select.value = seat.bot ?? ''
-      card.appendChild(select)
-    }
+    const connection = seat.is_bot || seat.connected ? t('room.connected') : t('room.offline')
+    card.textContent = t('room.seat', { seat: seat.seat, name: seat.name, connection })
     seats.appendChild(card)
   })
+  setStatus(message('status.roomWaiting'))
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +242,9 @@ function handleMessage(msg: unknown): void {
   switch (type) {
     case 'session': {
       activeUser = m['user'] as typeof activeUser
+      activeProfile = (m['profile'] as ProfileSummary | undefined) ?? null
       showLobby()
+      setStatus(message('status.ready'))
       break
     }
     case 'lobby_state': {
@@ -177,18 +259,19 @@ function handleMessage(msg: unknown): void {
     case 'room_closed':
     case 'room_left': {
       showLobby()
-      setStatus(type === 'room_closed' ? '房主已離開，房間已關閉。' : '已離開房間。')
+      setStatus(message(type === 'room_closed' ? 'status.roomClosed' : 'status.roomLeft'))
       break
     }
     case 'queue_joined': {
       ;(ui('queue-btn') as HTMLButtonElement).style.display = 'none'
       ;(ui('queue-cancel-btn') as HTMLButtonElement).style.display = ''
-      setStatus(`等待牌友加入（${m['size']}/4）`)
+      setStatus(message('status.queueWaiting', { size: Number(m['size']) }))
       break
     }
     case 'queue_left': {
       ;(ui('queue-btn') as HTMLButtonElement).style.display = ''
       ;(ui('queue-cancel-btn') as HTMLButtonElement).style.display = 'none'
+      setStatus(message('status.ready'))
       break
     }
     case 'match_started': {
@@ -196,17 +279,21 @@ function handleMessage(msg: unknown): void {
       const mine = players.find((player) => player.user_id === activeUser?.id)
       updateStore({ players: players as typeof store.players, mySeat: mine?.seat ?? 0, phase: 'playing', totalHands: Number(m['length'] ?? 1) })
       showScreen('game')
+      setStatus(message(m['mode'] === 'practice' ? 'status.practiceStarted' : 'status.gameStarted', {
+        dealer: () => seatLabel(Number(m['dealer'] ?? store.dealer)),
+      }))
       break
     }
     case 'next_hand': {
       document.getElementById('result-overlay')!.classList.add('hidden')
+      activeResult = null
       updateStore({ handNo: Number(m['hand'] ?? store.handNo + 1), totalHands: Number(m['total_hands'] ?? store.totalHands), dealer: Number(m['dealer'] ?? store.dealer) })
-      addLog(`第 ${m['hand']}/${m['total_hands']} 局`, `Hand ${m['hand']} / ${m['total_hands']}`)
+      addLog(message('log.nextHand', { hand: Number(m['hand']), total: Number(m['total_hands']) }))
       break
     }
     case 'match_snapshot': {
       applyMatchSnapshot(m)
-      setStatus('已同步最新牌局狀態。')
+      setStatus(message('status.snapshot'))
       break
     }
     case 'match_resume': {
@@ -216,23 +303,25 @@ function handleMessage(msg: unknown): void {
     case 'match_lost': {
       updateStore({ phase: 'lobby', hand: [], calls: [], river: [], myTurnOptions: [], claimOptions: [] })
       showLobby()
-      setStatus('牌局已遺失（伺服器重啟），已返回大廳。')
+      setStatus(message('status.matchLost'))
       break
     }
     case 'match_paused': {
       updatePlayerStatus(Number(m['seat']), false)
-      setStatus(`${seatLabel(Number(m['seat']))} 已斷線，等待 ${Math.ceil(m['seconds_left'] as number)} 秒`)
-      addLog(`${seatLabel(Number(m['seat']))} 已斷線`, `Player ${m['seat']} disconnected`)
+      const pausedSeat = Number(m['seat'])
+      const secondsLeft = Math.ceil(m['seconds_left'] as number)
+      setStatus(message('status.disconnected', { seat: () => seatLabel(pausedSeat), seconds: secondsLeft }))
+      addLog(message('log.disconnected', { seat: () => seatLabel(pausedSeat) }))
       break
     }
     case 'match_resumed': {
       updatePlayerStatus(Number(m['seat']), true)
-      setStatus('牌局已恢復')
+      setStatus(message('status.resumed'))
       break
     }
     case 'player_takeover': {
       updatePlayerStatus(Number(m['seat']), true, true)
-      addLog(`${seatLabel(Number(m['seat']))} 改由 AI 代打`, `Player ${m['seat']} is now auto-playing`)
+      addLog(message('log.takeover', { seat: () => seatLabel(Number(m['seat'])) }))
       break
     }
     case 'match_finished': {
@@ -259,8 +348,9 @@ function handleMessage(msg: unknown): void {
           others: buildOthers(),
           calledRiverTiles: {},
         })
-        setStatus(`遊戲開始！莊家：${seatLabel(Number(m['dealer']))}`)
-        addLog(`遊戲開始，莊家${seatLabel(Number(m['dealer']))}，牌牆 ${m['wall_count']} 張`, `Game started, dealer: Seat ${m['dealer']}, wall: ${m['wall_count']} tiles`)
+        const wallCount = Number(m['wall_count'])
+        setStatus(message('status.gameStarted', { dealer: () => seatLabel(Number(m['dealer'])) }))
+        addLog(message('log.gameStarted', { dealer: () => seatLabel(Number(m['dealer'])), wall: wallCount }))
       }
       render()
       break
@@ -276,7 +366,7 @@ function handleMessage(msg: unknown): void {
           others: { ...store.others, [drawSeat]: { ...drawnOther, hand_count: drawnOther.hand_count + 1 } },
         } : {}),
       })
-      addLog(`${seatLabel(Number(m['seat']))} 摸牌，牌牆剩 ${m['wall_count']}`, `Seat ${m['seat']} drew a tile, wall remaining: ${m['wall_count']}`)
+      addLog(message('log.drewTile', { seat: () => seatLabel(Number(m['seat'])), wall: Number(m['wall_count']) }))
       render()
       break
     }
@@ -297,9 +387,13 @@ function handleMessage(msg: unknown): void {
       if (m['drawn']) {
         updateStore({ hand: [...store.hand, m['drawn'] as string] })
       }
-       const deadline = m['deadline_at_ms'] as number | undefined
-       setStatus(`你的回合！摸到: ${m['drawn'] ?? '(副露後出牌)'}${deadline ? `，截止 ${new Date(deadline).toLocaleTimeString()}` : ''}`)
-      addLog(`你的回合，選項: ${(m['options'] as string[]).join(', ')}`, `Your turn, options: ${(m['options'] as string[]).join(', ')}`)
+      const deadline = m['deadline_at_ms'] as number | undefined
+      setStatus(message('status.yourTurn', {
+        drawn: () => m['drawn'] ? String(m['drawn']) : t('game.drawnAfterMeld'),
+        deadline: () => deadline ? t('status.deadline', { time: formatTime(deadline) }) : '',
+      }))
+      const rawOptions = m['options'] as string[]
+      addLog(message('log.yourTurn', { options: () => rawOptions.map(actionLabel).join(t('game.optionsSeparator')) }))
       render()
       break
     }
@@ -330,7 +424,9 @@ function handleMessage(msg: unknown): void {
         other.straightTripletCount = straightTripletCountFrom(m, other.straightTripletCount)
         updateStore({ others: { ...store.others, [seat]: other } })
       }
-      addLog(`${seatLabel(seat)} 打出 ${faceDown ? '（讓過）' : tile}`, `Seat ${seat} discarded ${faceDown ? '(face-down)' : tile}`)
+      addLog(message('log.discarded', {
+        seat: () => seatLabel(seat), tile: () => faceDown ? t('game.faceDownDiscard') : String(tile),
+      }))
       render()
       break
     }
@@ -353,7 +449,11 @@ function handleMessage(msg: unknown): void {
         turnId: null,
         turnDeadlineAt: null,
       })
-      setStatus(`鳴牌窗口：${m['tile']}（${seatLabel(Number(m['from_seat']))}打出），截止 ${new Date(m['deadline_at_ms'] as number).toLocaleTimeString()}`)
+       setStatus(message('status.claimWindow', {
+         tile: String(m['tile']),
+         seat: () => seatLabel(Number(m['from_seat'])),
+         time: () => formatTime(Number(m['deadline_at_ms'])),
+       }))
       render()
       break
     }
@@ -411,7 +511,9 @@ function handleMessage(msg: unknown): void {
         other.straightTripletCount = straightTripletCountFrom(m, other.straightTripletCount + (callType === 'straight_call' || callType === 'triplet_call' ? 1 : 0))
         updateStore({ others: { ...store.others, [seat]: other } })
       }
-      addLog(`${seatLabel(seat)} ${callLabel(callType)}：${tiles.join('')}`, `Seat ${seat} ${callType}: ${tiles.join('')}`)
+      addLog(message('log.call', {
+        seat: () => seatLabel(seat), call: () => callLabel(callType), tiles: tiles.join(''),
+      }))
       render()
       break
     }
@@ -420,13 +522,13 @@ function handleMessage(msg: unknown): void {
       if ((m['seat'] as number) === store.mySeat) {
         updateStore({ hasDeclaredWait: true })
       }
-      addLog(`${seatLabel(Number(m['seat']))} 宣告報聽`, `Seat ${m['seat']} declared wait`)
+      addLog(message('log.waitDeclared', { seat: () => seatLabel(Number(m['seat'])) }))
       render()
       break
     }
 
     case 'redraw': {
-      addLog(`Seat ${m['seat']} 重摸`, `Seat ${m['seat']} redrew`)
+      addLog(message('log.redraw', { seat: () => seatLabel(Number(m['seat'])) }))
       render()
       break
     }
@@ -435,7 +537,7 @@ function handleMessage(msg: unknown): void {
       applyScores(m['scores'])
       updateStore({ lastResult: m })
       showHandResult(m)
-      addLog('和牌結算完成', 'Hand result settled')
+      addLog(message('log.handSettled'))
       render()
       break
     }
@@ -444,20 +546,20 @@ function handleMessage(msg: unknown): void {
       applyScores(m['scores'])
       updateStore({ lastResult: m })
       showDrawResult(m)
-      addLog('荒牌結算完成', 'Draw result settled')
+      addLog(message('log.drawSettled'))
       render()
       break
     }
 
     case 'error': {
-      addLog(`[ERROR] ${m['message']}`, `[ERROR] ${m['message']}`)
-      setStatus(`錯誤: ${m['message']}`)
+      const errorMessage = formatApiError(m['message'])
+      addLog(message('log.error', { message: () => formatApiError(m['message']) }))
+      setStatus(message('status.error', { message: () => formatApiError(m['message']) }))
       break
     }
 
     case 'debug_log': {
-      const line = `[BOT] ${m['message']}`
-      addLog(line, line)
+      addLog(message('log.bot', { message: String(m['message']) }))
       break
     }
   }
@@ -468,27 +570,31 @@ function handleMessage(msg: unknown): void {
 // ---------------------------------------------------------------------------
 
 function showMatchResult(m: Record<string, unknown>): void {
+  activeResult = m
   const overlay = document.getElementById('result-overlay')!
   const title = document.getElementById('result-title')!
   const body = document.getElementById('result-body')!
   overlay.classList.remove('hidden')
-  title.textContent = '對局完成'
+  title.textContent = t('result.matchComplete')
   body.replaceChildren()
   const results = m['results'] as Array<Record<string, unknown>>
   for (const result of results) {
     const row = document.createElement('div')
     row.className = 'payment-row'
-    row.textContent = `${result['name']} · 第 ${result['rank']} 名 · ${result['score']} 分`
+    row.textContent = t('result.rankLine', {
+      name: String(result['name']), rank: Number(result['rank']), score: Number(result['score']),
+    })
     body.appendChild(row)
   }
 }
 
 function showHandResult(m: Record<string, unknown>): void {
+  activeResult = m
   const overlay = document.getElementById('result-overlay')!
   const title = document.getElementById('result-title')!
   const body = document.getElementById('result-body')!
   overlay.classList.remove('hidden')
-  title.textContent = '和牌結算'
+  title.textContent = t('result.handSettlement')
   body.replaceChildren()
   const winners = (m['winners'] as Array<Record<string, unknown>>) ?? []
   for (const winner of winners) {
@@ -496,32 +602,41 @@ function showHandResult(m: Record<string, unknown>): void {
     row.className = 'payment-row'
     const fanNames = ((winner['fans'] as Array<Record<string, unknown>>) ?? [])
       .map((fan) => fan['name'] ?? fan['id'])
-      .join('、')
+      .join(t('game.optionsSeparator'))
     const hand = ((winner['hand'] as string[]) ?? []).join(' ')
     const calls = ((winner['calls'] as string[]) ?? []).join(' ')
-    row.textContent = `${seatLabel(Number(winner['seat']))} · ${winner['win_type'] === 'tsumo' ? '自摸' : '榮和'} · ${winner['final_score']} 分 · ${fanNames || '無番種'}${hand ? ` · 手牌 ${hand}` : ''}${calls ? ` · 副露 ${calls}` : ''}`
+    row.textContent = t('result.winnerLine', {
+      seat: seatLabel(Number(winner['seat'])),
+      winType: winner['win_type'] === 'tsumo' ? t('result.tsumo') : t('result.ron'),
+      score: `${winner['final_score']} ${t('result.points')}`,
+      fans: fanNames || t('result.noFans'),
+    })
+    if (hand) row.textContent += ` · ${t('result.hand', { tiles: hand })}`
+    if (calls) row.textContent += ` · ${t('result.calls', { calls })}`
     body.appendChild(row)
   }
   appendPayments(body, m['payments'])
 }
 
 function showDrawResult(m: Record<string, unknown>): void {
+  activeResult = m
   const overlay = document.getElementById('result-overlay')!
   const title = document.getElementById('result-title')!
   const body = document.getElementById('result-body')!
   overlay.classList.remove('hidden')
-  title.textContent = '荒牌結算'
+  title.textContent = t('result.drawSettlement')
   body.replaceChildren()
-  const tenpai = ((m['tenpai_seats'] as number[]) ?? []).map(seatLabel).join('、') || '無人聽牌'
+  const tenpai = ((m['tenpai_seats'] as number[]) ?? []).map(seatLabel).join(t('game.optionsSeparator')) || t('result.noTenpai')
   const note = document.createElement('div')
-  note.textContent = `聽牌：${tenpai}`
+  note.textContent = t('result.tenpai', { seats: tenpai })
   body.appendChild(note)
   appendPayments(body, m['payments'])
   const hands = (m['hands'] as Record<string, string[]>) ?? {}
   const calls = (m['calls'] as Record<string, string[]>) ?? {}
   for (const [seat, tiles] of Object.entries(hands)) {
     const row = document.createElement('div')
-    row.textContent = `${seatLabel(Number(seat))} 手牌：${tiles.join(' ')}${calls[seat]?.length ? ` · 副露 ${calls[seat].join(' ')}` : ''}`
+    row.textContent = t('result.seatHand', { seat: seatLabel(Number(seat)), tiles: tiles.join(' ') })
+    if (calls[seat]?.length) row.textContent += ` · ${t('result.calls', { calls: calls[seat].join(' ') })}`
     body.appendChild(row)
   }
 }
@@ -531,7 +646,7 @@ function appendPayments(body: HTMLElement, raw: unknown): void {
   for (const [seat, payment] of Object.entries(raw as Record<string, number>)) {
     const row = document.createElement('div')
     row.className = 'payment-row'
-    row.textContent = `${seatLabel(Number(seat))}：${payment >= 0 ? '+' : ''}${payment}`
+    row.textContent = t('result.payment', { seat: seatLabel(Number(seat)), payment: `${payment >= 0 ? '+' : ''}${payment}` })
     body.appendChild(row)
   }
 }
@@ -587,23 +702,25 @@ function updatePlayerStatus(seat: number, connected: boolean, isBot?: boolean): 
 }
 
 function callSourceLabel(callType: string, seat: number, fromSeat: number): string {
-  if (callType === 'concealed_quad_declare') return '暗槓'
-  if (callType === 'upgraded_quad_declare') return '補槓'
-  const name: Record<string, string> = { straight_call: '吃', triplet_call: '碰', direct_quad_call: '明槓' }
+  if (callType === 'concealed_quad_declare') return t('controls.concealedKong')
+  if (callType === 'upgraded_quad_declare') return t('controls.addedKong')
+  const name: Record<string, TranslationKey> = {
+    straight_call: 'controls.eat', triplet_call: 'controls.pong', direct_quad_call: 'controls.exposedKong',
+  }
+  const relation: Record<number, TranslationKey> = { 1: 'seat.next', 2: 'seat.opposite', 3: 'seat.previous' }
   const dist = (fromSeat - seat + 4) % 4
-  const source = dist === 3 ? '上家' : dist === 2 ? '對家' : '下家'
-  return `${name[callType] ?? callType}-${source}`
+  return `${name[callType] ? t(name[callType]) : callType}-${t(relation[dist] ?? 'seat.number', { seat: fromSeat })}`
 }
 
 function callLabel(callType: string): string {
-  const labels: Record<string, string> = {
-    straight_call: '吃',
-    triplet_call: '碰',
-    direct_quad_call: '明槓',
-    concealed_quad_declare: '暗槓',
-    upgraded_quad_declare: '加槓',
+  const labels: Record<string, TranslationKey> = {
+    straight_call: 'controls.eat',
+    triplet_call: 'controls.pong',
+    direct_quad_call: 'controls.exposedKong',
+    concealed_quad_declare: 'controls.concealedKong',
+    upgraded_quad_declare: 'controls.addedKong',
   }
-  return labels[callType] ?? callType
+  return labels[callType] ? t(labels[callType]) : callType
 }
 
 function makeCallStr(callType: string, tiles: string[], seat: number, fromSeat: number, claimedTile: string | null): string {
@@ -628,7 +745,7 @@ function replaceTripletWithUpgradedQuad(calls: string[], tiles: string[]): strin
   const next = [...calls]
   const idx = next.findIndex(c => c.startsWith('triplet_call|') && parseTiles(c).every(t => t === tile))
   const oldParts = idx >= 0 ? next[idx].split('|') : []
-  const label = idx >= 0 ? `${next[idx].split('|')[1]} + 補槓` : '補槓'
+  const label = idx >= 0 ? `${next[idx].split('|')[1]} + ${t('controls.addedKong')}` : t('controls.addedKong')
   const claimedIndex = oldParts.length >= 4 ? oldParts[2] : '-1'
   const call = `upgraded_quad_declare|${label}|${claimedIndex}|[${tiles.join('')}]`
   if (idx >= 0) next[idx] = call
@@ -668,12 +785,122 @@ function tileRank(tile: string): number {
 
 function seatLabel(seat: number): string {
   const dist = (seat - store.mySeat + 4) % 4
-  return ['自家', '下家', '對家', '上家'][dist] ?? `座位 ${seat}`
+  const labels: Record<number, TranslationKey> = { 0: 'seat.self', 1: 'seat.next', 2: 'seat.opposite', 3: 'seat.previous' }
+  return labels[dist] ? t(labels[dist]) : t('seat.number', { seat })
+}
+
+function actionLabel(action: string): string {
+  const keys: Record<string, TranslationKey> = {
+    discard: 'controls.discard',
+    tsumo: 'controls.tsumo',
+    concealed_quad_declare: 'controls.concealedKong',
+    upgraded_quad_declare: 'controls.addedKong',
+    redraw: 'controls.redraw',
+    declare_wait: 'controls.declareWait',
+    win: 'controls.win',
+    triplet_call: 'controls.pong',
+    direct_quad_call: 'controls.exposedKong',
+    straight_call: 'controls.eat',
+    skip: 'controls.skip',
+  }
+  return keys[action] ? t(keys[action]) : action
 }
 
 function render(): void {
   renderBoard()
   renderControls()
+}
+
+function profileValue(value: number): string {
+  return new Intl.NumberFormat(getLocale(), { maximumFractionDigits: 2 }).format(value)
+}
+
+function renderProfileSummary(): void {
+  const box = ui('profile-box')
+  if (box.style.display !== 'none') renderProfileSection()
+}
+
+function appendProfileStat(container: HTMLElement, label: TranslationKey, value: string): void {
+  const stat = document.createElement('div')
+  stat.className = 'profile-stat'
+  const caption = document.createElement('span')
+  caption.textContent = t(label)
+  const strong = document.createElement('strong')
+  strong.textContent = value
+  stat.append(caption, strong)
+  container.appendChild(stat)
+}
+
+function renderProfileSection(): void {
+  const content = ui('profile-content')
+  content.innerHTML = ''
+  if (!activeProfile) {
+    content.textContent = t('profile.loadingReplay')
+    return
+  }
+
+  const stats = document.createElement('div')
+  stats.className = 'profile-stats'
+  appendProfileStat(stats, 'profile.games', profileValue(activeProfile.games))
+  appendProfileStat(stats, 'profile.wins', profileValue(activeProfile.wins))
+  appendProfileStat(stats, 'profile.draws', profileValue(activeProfile.draws))
+  appendProfileStat(stats, 'profile.losses', profileValue(activeProfile.losses))
+  appendProfileStat(stats, 'profile.winRate', `${Math.round(activeProfile.win_rate * 100)}%`)
+  appendProfileStat(stats, 'profile.averageScore', profileValue(activeProfile.average_score))
+
+  const heading = document.createElement('h3')
+  heading.textContent = t('profile.recentMatches')
+  const list = document.createElement('div')
+  list.id = 'profile-replays'
+  if (!activeReplays.length) {
+    const empty = document.createElement('p')
+    empty.className = 'panel-description'
+    empty.textContent = t('profile.noReplays')
+    list.appendChild(empty)
+  }
+  for (const match of activeReplays) {
+    const details = document.createElement('details')
+    details.className = 'replay-item'
+    const summary = document.createElement('summary')
+    summary.textContent = `${formatDateTime(match.finished_at)} · ${matchLengthLabel(match.length)} · ${t('profile.rank', { rank: match.rank })} · ${t('profile.score', { score: profileValue(match.score) })}`
+    const button = document.createElement('button')
+    button.className = 'ghost-action'
+    button.textContent = t('profile.loadReplay')
+    button.onclick = async () => {
+      button.disabled = true
+      button.textContent = t('profile.loadingReplay')
+      try {
+        const replay = await api(`/api/replays/${match.id}`)
+        const pre = document.createElement('pre')
+        pre.textContent = JSON.stringify(replay, null, 2)
+        button.replaceWith(pre)
+      } catch {
+        button.disabled = false
+        button.textContent = t('profile.loadError')
+      }
+    }
+    details.append(summary, button)
+    list.appendChild(details)
+  }
+  content.append(stats, heading, list)
+}
+
+async function toggleProfileSection(): Promise<void> {
+  const box = ui('profile-box')
+  const opening = box.style.display === 'none'
+  box.style.display = opening ? '' : 'none'
+  ui('profile-btn').setAttribute('aria-expanded', String(opening))
+  if (!opening) return
+  ui('profile-content').textContent = t('profile.loadingReplay')
+  try {
+    const [profile, replays] = await Promise.all([api('/api/profile'), api('/api/replays')])
+    activeProfile = profile as ProfileSummary
+    activeReplays = (replays.replays ?? []) as ReplaySummary[]
+    renderProfileSummary()
+    renderProfileSection()
+  } catch {
+    ui('profile-content').textContent = t('profile.loadError')
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -692,72 +919,90 @@ document.getElementById('btn-new-game')?.addEventListener('click', () => {
 // Boot
 // ---------------------------------------------------------------------------
 
-setStatus('連接中…')
+setStatus(message('status.connecting'))
 onMessage(handleMessage)
 initKeyboardShortcuts(render)
+
+onLocaleChange(() => {
+  applyTranslations()
+  ui('lobby-user').textContent = activeUser ? t('lobby.user', { username: activeUser.username }) : ''
+  if (authErrorDetail !== undefined) ui('auth-error').textContent = formatApiError(authErrorDetail)
+  if (currentRooms.length || ui('room-list').textContent) renderRooms(currentRooms)
+  if (activeRoom) renderRoom(activeRoom)
+  renderProfileSummary()
+  if (ui('profile-box').style.display !== 'none') renderProfileSection()
+  render()
+  if (activeResult?.type === 'match_finished') showMatchResult(activeResult)
+  if (activeResult?.type === 'hand_result') showHandResult(activeResult)
+  if (activeResult?.type === 'draw_result') showDrawResult(activeResult)
+})
+
+const languageSelect = ui('language-select') as HTMLSelectElement
+languageSelect.value = getLocale()
+languageSelect.addEventListener('change', () => {
+  const next = languageSelect.value
+  if (next === 'zh-Hant' || next === 'zh-Hans' || next === 'en') setLocale(next)
+})
+
+ui('auth-switch').addEventListener('click', () => {
+  showAuth(authMode === 'login' ? 'register' : 'login')
+})
+window.addEventListener('hashchange', () => showAuth(location.hash === '#register' ? 'register' : 'login', false))
+showAuth(authMode, false)
 
 async function signIn(path: string): Promise<void> {
   const form = ui('login-form') as HTMLFormElement
   if (!form.reportValidity()) return
   const username = (ui('auth-username') as HTMLInputElement).value
   const password = (ui('auth-password') as HTMLInputElement).value
+  authErrorDetail = undefined
   ui('auth-error').textContent = ''
   try {
     const result = await api(path, { method: 'POST', body: JSON.stringify({ username, password }) })
     activeUser = result.user
+    clearAuthHash()
     connectLobby()
   } catch (error) {
-    ui('auth-error').textContent = error instanceof Error ? error.message : '登入失敗，請稍後再試。'
+    if (error instanceof ApiError) {
+      authErrorDetail = error.detail
+      ui('auth-error').textContent = error.message
+    } else {
+      ui('auth-error').textContent = error instanceof Error ? error.message : t('error.loginFailed')
+    }
   }
 }
 
 ui('login-form').addEventListener('submit', (event) => {
   event.preventDefault()
-  const submitter = (event as SubmitEvent).submitter as HTMLButtonElement | null
-  void signIn(submitter?.value === 'register' ? '/api/auth/register' : '/api/auth/login')
+  void signIn(authMode === 'register' ? '/api/auth/register' : '/api/auth/login')
 })
 ui('logout-btn').addEventListener('click', async () => {
   await api('/api/auth/logout', { method: 'POST' }).catch(() => undefined)
   window.location.reload()
 })
-ui('profile-btn').addEventListener('click', async () => {
-  const box = ui('profile-box')
-  const result = await api('/api/profile')
-  const allReplays = await api('/api/replays')
-  box.innerHTML = `<pre>${JSON.stringify({ games: result.games, wins: result.wins, draws: result.draws, losses: result.losses, win_rate: result.win_rate, average_score: result.average_score }, null, 2)}</pre><h3>Recent matches and room replays</h3>`
-  for (const match of allReplays.replays ?? []) {
-    const button = document.createElement('button')
-    button.textContent = `Replay ${match.id}`
-    button.onclick = async () => {
-      const replay = await api(`/api/replays/${match.id}`)
-      const pre = document.createElement('pre')
-      pre.textContent = JSON.stringify(replay, null, 2)
-      box.appendChild(pre)
-    }
-    box.appendChild(button)
-  }
-  box.style.display = box.style.display === 'none' ? '' : 'none'
+ui('profile-btn').setAttribute('aria-expanded', 'false')
+ui('profile-btn').addEventListener('click', () => void toggleProfileSection())
+ui('profile-collapse-btn').addEventListener('click', () => {
+  ui('profile-box').style.display = 'none'
+  ui('profile-btn').setAttribute('aria-expanded', 'false')
 })
 ui('queue-btn').addEventListener('click', () => send({ type: 'queue_join', length: matchLength((ui('queue-length') as HTMLSelectElement).value) }))
 ui('queue-cancel-btn').addEventListener('click', () => send({ type: 'queue_leave', length: matchLength((ui('queue-length') as HTMLSelectElement).value) }))
 ui('create-room-btn').addEventListener('click', () => send({
-  type: 'create_room', length: matchLength((ui('room-length') as HTMLSelectElement).value),
-  visibility: (ui('room-visibility') as HTMLSelectElement).value as RoomVisibility,
+  type: 'create_room', length: matchLength((ui('room-length') as HTMLSelectElement).value), visibility: 'private',
 }))
+ui('practice-btn').addEventListener('click', () => send({ type: 'practice_start' }))
 ui('join-code-btn').addEventListener('click', () => send({
   type: 'join_room', code: (ui('join-code') as HTMLInputElement).value.trim(),
 }))
 ui('save-config-btn').addEventListener('click', () => {
-  const bots: Record<string, BotType | null> = {}
-  document.querySelectorAll<HTMLSelectElement>('#room-seats select[data-seat]').forEach((select) => {
-    bots[select.dataset.seat!] = (select.value || null) as BotType | null
-  })
-  send({ type: 'set_room_config', length: matchLength((ui('config-length') as HTMLSelectElement).value), bots })
+  send({ type: 'set_room_config', length: matchLength((ui('config-length') as HTMLSelectElement).value), bots: {} })
 })
 ui('start-room-btn').addEventListener('click', () => send({ type: 'start_room' }))
 ui('leave-room-btn').addEventListener('click', () => send({ type: 'leave_room' }))
 
 void api('/api/me').then((result) => {
   activeUser = result.user
+  clearAuthHash()
   connectLobby()
-}).catch(() => showScreen('auth'))
+}).catch(() => showAuth(authMode, false))

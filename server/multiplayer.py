@@ -18,6 +18,7 @@ from game.tiles import tile_to_str
 
 SendUser = Callable[[int, dict], Awaitable[None]]
 BroadcastUsers = Callable[[list[int], dict], Awaitable[None]]
+TEST_ROOM_ID = '63549000'
 
 
 @dataclass
@@ -39,15 +40,16 @@ class Seat:
 @dataclass
 class Room:
     id: str
-    owner_id: int
+    owner_id: int | None
     owner_name: str
     length: int = 1
-    visibility: str = 'public'
+    visibility: str = 'private'
     code: str | None = None
     seats: list[Seat] = field(default_factory=lambda: [Seat() for _ in range(4)])
 
     def __post_init__(self) -> None:
-        self.seats[0] = Seat(self.owner_id, self.owner_name)
+        if self.owner_id is not None:
+            self.seats[0] = Seat(self.owner_id, self.owner_name)
 
     def users(self) -> list[int]:
         return [s.user_id for s in self.seats if s.user_id is not None]
@@ -115,7 +117,7 @@ class Match:
         async with self._lock:
             self.hand_no = 1
             self.replay.append({'type': 'wall_seed', 'hand': self.hand_no, 'seed': self.seed})
-            await self._broadcast({'type': 'match_started', 'match_id': self.id, 'length': self.length,
+            await self._broadcast({'type': 'match_started', 'match_id': self.id, 'length': self.length, 'mode': self.mode,
                                    'players': [slot.payload(i) for i, slot in enumerate(self.seats)]})
             await self.game.start()
 
@@ -266,9 +268,21 @@ class Lobby:
         self.user_room: dict[int, str] = {}
         self.user_match: dict[int, str] = {}
         self.connected_users: set[int] = set()
+        self._ensure_test_room()
+
+    def _ensure_test_room(self) -> Room:
+        existing = self.rooms.get(TEST_ROOM_ID)
+        if existing is not None:
+            return existing
+        room = Room(TEST_ROOM_ID, None, 'Internal test', 1, 'private', TEST_ROOM_ID)
+        room.seats[1] = Seat(username='Bot_A', bot='efficiency')
+        room.seats[2] = Seat(username='Bot_B', bot='efficiency')
+        self.rooms[TEST_ROOM_ID] = room
+        return room
 
     def snapshot(self) -> dict:
-        return {'type': 'lobby_state', 'rooms': [r.view() for r in self.rooms.values() if r.visibility == 'public']}
+        test_room = self.rooms.get(TEST_ROOM_ID)
+        return {'type': 'lobby_state', 'rooms': [test_room.view()] if test_room else []}
 
     async def notify_lobby(self) -> None:
         # The application broadcasts this to currently connected users.
@@ -312,16 +326,47 @@ class Lobby:
     async def create_room(self, user_id: int, username: str, length: int, visibility: str) -> Room:
         if user_id in self.user_room or user_id in self.user_match:
             raise ValueError('Already in a room')
-        if length not in (1, 4, 8) or visibility not in ('public', 'private'):
+        if length not in (1, 4, 8):
             raise ValueError('Invalid room settings')
-        room_id = uuid.uuid4().hex[:8]
-        code = secrets.token_urlsafe(6) if visibility == 'private' else None
-        room = Room(room_id, user_id, username, length, visibility, code)
+        visibility = 'private'
+        room_id = str(secrets.randbelow(90_000_000) + 10_000_000)
+        while room_id in self.rooms:
+            room_id = str(secrets.randbelow(90_000_000) + 10_000_000)
+        room = Room(room_id, user_id, username, length, visibility, secrets.token_urlsafe(6))
         room.seats[0].connected = user_id in self.connected_users
         self.rooms[room_id] = room
         self.user_room[user_id] = room_id
         await self.notify_lobby()
         return room
+
+    async def start_practice(self, user_id: int, username: str) -> Match:
+        if user_id in self.user_room or user_id in self.user_match:
+            raise ValueError('Already in a room')
+        seats = [
+            Seat(user_id, username),
+            Seat(username='Bot_A', bot='efficiency'),
+            Seat(username='Bot_B', bot='efficiency'),
+            Seat(username='Bot_C', bot='efficiency'),
+        ]
+        match = self._make_match('practice', 1, seats)
+        self.matches[match.id] = match
+        self.user_match[user_id] = match.id
+        await match.start()
+        return match
+
+    async def start_test_room(self, room: Room) -> Match | None:
+        if room.id != TEST_ROOM_ID or any(slot.user_id is None and not slot.is_bot for slot in room.seats):
+            return None
+        match = self._make_match('test_room', room.length, room.seats)
+        self.rooms.pop(room.id, None)
+        for uid in room.users():
+            self.user_room.pop(uid, None)
+            self.user_match[uid] = match.id
+        self.matches[match.id] = match
+        self._ensure_test_room()
+        await self.notify_lobby()
+        await match.start()
+        return match
 
     async def join_room(self, user_id: int, username: str, room_id: str | None = None, code: str | None = None) -> Room:
         if user_id in self.user_room or user_id in self.user_match:
