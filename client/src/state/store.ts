@@ -23,6 +23,12 @@ export interface PlayerInfo {
   score?: number
 }
 
+export interface WaitOption {
+  discard: string
+  waits: string[]
+  outs: number
+}
+
 export interface GameStore {
   phase: 'connecting' | 'lobby' | 'playing' | 'ended'
   mySeat: number
@@ -48,6 +54,7 @@ export interface GameStore {
 
   // Turn options
   myTurnOptions: string[]
+  waitOptions: WaitOption[]
   drawnTile: string | null
   turnId: number | null
   turnDeadlineAt: number | null
@@ -86,6 +93,7 @@ export const store: GameStore = {
   handNo: 1,
   totalHands: 1,
   myTurnOptions: [],
+  waitOptions: [],
   drawnTile: null,
   turnId: null,
   turnDeadlineAt: null,

@@ -1,5 +1,5 @@
 import { connect, onMessage, send } from './net/ws'
-import { store, updateStore } from './state/store'
+import { store, updateStore, type WaitOption } from './state/store'
 import { renderBoard, setStatus, addLog, exportLog } from './render/board'
 import { renderControls, initKeyboardShortcuts } from './render/controls'
 import type { ClaimType, MatchLength } from './protocol/messages'
@@ -181,6 +181,7 @@ function applyMatchSnapshot(snapshot: Record<string, unknown>): void {
     handNo: (snapshot['hand'] as number) ?? 1,
     totalHands: (snapshot['total_hands'] as number) ?? 1,
     myTurnOptions: (snapshot['legal_options'] as string[]) ?? [],
+    waitOptions: parseWaitOptions(snapshot['wait_options']),
     drawnTile: (snapshot['drawn_tile'] as string | null) ?? null,
     turnId: (snapshot['turn_id'] as number | null) ?? null,
     turnDeadlineAt: (snapshot['turn_deadline_at_ms'] as number | null) ?? null,
@@ -290,7 +291,7 @@ function handleMessage(msg: unknown): void {
     case 'match_started': {
       const players = m['players'] as Array<{ seat: number; user_id: number | null; name: string; is_bot: boolean; connected?: boolean; score?: number }>
       const mine = players.find((player) => player.user_id === activeUser?.id)
-      updateStore({ players: players as typeof store.players, mySeat: mine?.seat ?? 0, phase: 'playing', totalHands: Number(m['length'] ?? 1) })
+      updateStore({ players: players as typeof store.players, mySeat: mine?.seat ?? 0, phase: 'playing', totalHands: Number(m['length'] ?? 1), waitOptions: [] })
       showScreen('game')
       setStatus(message(m['mode'] === 'practice' ? 'status.practiceStarted' : 'status.gameStarted', {
         dealer: () => seatLabel(Number(m['dealer'] ?? store.dealer)),
@@ -300,7 +301,7 @@ function handleMessage(msg: unknown): void {
     case 'next_hand': {
       document.getElementById('result-overlay')!.classList.add('hidden')
       activeResult = null
-      updateStore({ handNo: Number(m['hand'] ?? store.handNo + 1), totalHands: Number(m['total_hands'] ?? store.totalHands), dealer: Number(m['dealer'] ?? store.dealer), lastDiscard: null })
+      updateStore({ handNo: Number(m['hand'] ?? store.handNo + 1), totalHands: Number(m['total_hands'] ?? store.totalHands), dealer: Number(m['dealer'] ?? store.dealer), lastDiscard: null, waitOptions: [] })
       addLog(message('log.nextHand', { hand: Number(m['hand']), total: Number(m['total_hands']) }))
       break
     }
@@ -314,7 +315,7 @@ function handleMessage(msg: unknown): void {
       break
     }
     case 'match_lost': {
-      updateStore({ phase: 'lobby', hand: [], calls: [], river: [], myTurnOptions: [], claimOptions: [], lastDiscard: null })
+      updateStore({ phase: 'lobby', hand: [], calls: [], river: [], myTurnOptions: [], waitOptions: [], claimOptions: [], lastDiscard: null })
       showLobby()
       setStatus(message('status.matchLost'))
       break
@@ -338,7 +339,7 @@ function handleMessage(msg: unknown): void {
       break
     }
     case 'match_finished': {
-      updateStore({ lastResult: m, phase: 'ended', myTurnOptions: [], claimOptions: [] })
+      updateStore({ lastResult: m, phase: 'ended', myTurnOptions: [], waitOptions: [], claimOptions: [] })
       showScreen('game')
       showMatchResult(m)
       render()
@@ -358,6 +359,7 @@ function handleMessage(msg: unknown): void {
           wallCount: m['wall_count'] as number,
           dealer: Number(m['dealer'] ?? store.dealer),
           myTurnOptions: [],
+          waitOptions: [],
           others: buildOthers(),
           calledRiverTiles: {},
           lastDiscard: null,
@@ -376,6 +378,7 @@ function handleMessage(msg: unknown): void {
       updateStore({
         wallCount: m['wall_count'] as number,
         currentSeat: drawSeat,
+        waitOptions: [],
         ...(drawSeat !== store.mySeat && drawnOther ? {
           others: { ...store.others, [drawSeat]: { ...drawnOther, hand_count: drawnOther.hand_count + 1 } },
         } : {}),
@@ -392,6 +395,7 @@ function handleMessage(msg: unknown): void {
         ...(authoritativeHand ? { hand: authoritativeHand } : {}),
         drawnTile: m['drawn'] as string | null,
         myTurnOptions: m['options'] as string[],
+        waitOptions: parseWaitOptions(m['wait_options']),
         claimOptions: [],
         pass_count: (m['pass_count'] as number | undefined) ?? store.pass_count,
         straightTripletCount: straightTripletCountFrom(m, store.straightTripletCount),
@@ -418,6 +422,7 @@ function handleMessage(msg: unknown): void {
       const seat = m['seat'] as number
       const tile = m['tile'] as string | null
       const faceDown = m['face_down'] as boolean
+      updateStore({ waitOptions: [] })
       if (seat === store.mySeat) {
         const newHand = [...store.hand]
         const idx = tile ? newHand.lastIndexOf(tile) : newHand.length - 1
@@ -459,6 +464,7 @@ function handleMessage(msg: unknown): void {
       }
       updateStore({
         claimOptions: opts,
+        waitOptions: [],
         claimTile: m['tile'] as string,
         claimFromSeat: m['from_seat'] as number,
         myTurnOptions: [],
@@ -517,6 +523,7 @@ function handleMessage(msg: unknown): void {
         updateStore({
           hand: newHand,
           calls,
+          waitOptions: [],
           claimOptions: [],
           claimTile: null,
           pass_count: (m['pass_count'] as number | undefined) ?? store.pass_count,
@@ -541,10 +548,13 @@ function handleMessage(msg: unknown): void {
     }
 
     case 'wait_declared': {
-      if ((m['seat'] as number) === store.mySeat) {
+      const seat = Number(m['seat'])
+      if (seat === store.mySeat) {
         updateStore({ hasDeclaredWait: true })
+      } else if (store.others[seat]) {
+        updateStore({ others: { ...store.others, [seat]: { ...store.others[seat], hasDeclaredWait: true } } })
       }
-      addLog(message('log.waitDeclared', { seat: () => seatLabel(Number(m['seat'])) }))
+      addLog(message('log.waitDeclared', { seat: () => seatLabel(seat) }))
       render()
       break
     }
@@ -780,6 +790,20 @@ function straightTripletCountFrom(m: Record<string, unknown>, fallback: number):
   return (m['straight_triplet_count'] as number | undefined) ?? fallback
 }
 
+function parseWaitOptions(value: unknown): WaitOption[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item): WaitOption[] => {
+    if (!item || typeof item !== 'object') return []
+    const raw = item as Record<string, unknown>
+    if (typeof raw.discard !== 'string' || !Array.isArray(raw.waits) || typeof raw.outs !== 'number') return []
+    return [{
+      discard: raw.discard,
+      waits: raw.waits.filter((tile): tile is string => typeof tile === 'string'),
+      outs: Math.max(0, Math.floor(raw.outs)),
+    }]
+  })
+}
+
 function parseTiles(callStr: string): string[] {
   const parts = callStr.split('|')
   const inner = parts.slice(parts.length >= 4 ? 3 : 2).join('|').replace(/[\[\]]/g, '')
@@ -941,8 +965,28 @@ document.getElementById('log-toggle')?.addEventListener('click', () => {
   if (opening) ui('log').scrollTop = 0
 })
 
+document.getElementById('wait-info-toggle')?.addEventListener('click', () => {
+  const panel = ui('wait-info-panel')
+  const button = ui('wait-info-toggle')
+  const opening = panel.hidden
+  panel.hidden = !opening
+  button.setAttribute('aria-expanded', String(opening))
+})
+
+document.getElementById('wait-info-close')?.addEventListener('click', () => {
+  ui('wait-info-panel').hidden = true
+  ui('wait-info-toggle').setAttribute('aria-expanded', 'false')
+})
+
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return
+  const waitPanel = ui('wait-info-panel')
+  if (!waitPanel.hidden) {
+    waitPanel.hidden = true
+    ui('wait-info-toggle').setAttribute('aria-expanded', 'false')
+    ui('wait-info-toggle').focus()
+    return
+  }
   const log = ui('log-container')
   if (!log.classList.contains('is-open')) return
   log.classList.remove('is-open')

@@ -293,6 +293,35 @@ def test_non_downstream_straight_call_claim_is_sanitized_to_skip():
     assert game._claims[0] == {'claim': 'skip'}
 
 
+def test_straight_call_consumes_only_the_two_hand_tiles():
+    async def noop(*args):
+        pass
+
+    players = []
+    for seat in range(4):
+        p = PlayerState(seat=seat, name=f'P{seat}')
+        p.hand = tiles('123b456b789d45cES')
+        players.append(p)
+
+    # The hand has two 5c and one 7c; 6c is the claimed discard.
+    players[2].hand = tiles('55c7c123b789d4dES')
+    game = GameState(players, noop, noop)
+    game.state = FSMState.AWAIT_CLAIMS
+    game.wall = FakeWall([])
+    game._pending_discard = T('6c')
+    game._pending_from_seat = 1
+
+    assert game._sanitize_claim(2, {'claim': 'straight_call', 'tiles': ['5c', '6c', '7c']}) == {'claim': 'skip'}
+    action = game._sanitize_claim(2, {'claim': 'straight_call', 'tiles': ['5c', '7c']})
+    assert action['claim'] == 'straight_call'
+
+    asyncio.run(game._do_call(2, action, T('6c'), from_seat=1))
+
+    assert players[2].hand.count(T('5c')) == 1
+    assert T('7c') not in players[2].hand
+    assert players[2].calls[-1].tiles == sorted([T('5c'), T('6c'), T('7c')])
+
+
 def test_declare_wait_option_when_discard_leaves_tenpai():
     p = PlayerState(seat=0, name='Human')
     p.hand = tiles('123b456b789b12c11d9d')
@@ -301,6 +330,17 @@ def test_declare_wait_option_when_discard_leaves_tenpai():
 
     assert game._can_declare_wait(p)
     assert 'declare_wait' in game._compute_turn_options(p, T('9d'))
+
+
+def test_wait_options_count_visible_outs_after_discard():
+    p = PlayerState(seat=0, name='Human')
+    p.hand = tiles('123b456b789b12c11d9d')
+    other = PlayerState(seat=1, name='Other')
+    other.river = [T('3c')] * 3
+    other.river_face_down = [False] * 3
+    game = GameState([p, other])
+
+    assert game._wait_options(p) == [{'discard': '9d', 'waits': ['3c'], 'outs': 1}]
 
 
 def test_declare_wait_atomically_discards_selected_tile():

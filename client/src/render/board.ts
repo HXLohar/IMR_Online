@@ -100,6 +100,11 @@ export function renderBoard(): void {
     const section = el(position.section)
     section.dataset.seat = String(seat)
     section.classList.toggle('is-active-turn', seat === store.currentSeat)
+    const player = playerAt(seat)
+    const declaredWait = Boolean(player?.hasDeclaredWait)
+    section.classList.toggle('has-declared-wait', declaredWait)
+    const waitBadge = section.querySelector('.wait-status-badge') as HTMLElement | null
+    if (waitBadge) waitBadge.hidden = !declaredWait
     section.querySelector('.section-label')!.textContent = playerSummary(seat, seatLabel(seat))
     renderRiver(seat, position.river)
     renderCalls(seat, position.calls)
@@ -110,8 +115,36 @@ export function renderBoard(): void {
   playerArea.dataset.seat = String(store.mySeat)
   playerArea.classList.toggle('is-active-turn', store.mySeat === store.currentSeat)
   el('player-relation')!.textContent = playerSummary(store.mySeat, t('seat.self'))
+  renderWaitInfo()
+  renderRiver(store.mySeat, 'river-0')
   renderLatestDiscard()
   renderHand()
+}
+
+function renderWaitInfo(): void {
+  const toggle = el('wait-info-toggle') as HTMLButtonElement
+  const panel = el('wait-info-panel')
+  const body = el('wait-info-body')
+  const hasOptions = store.waitOptions.length > 0
+  toggle.hidden = !hasOptions
+  if (!hasOptions) {
+    panel.hidden = true
+    toggle.setAttribute('aria-expanded', 'false')
+    body.replaceChildren()
+    return
+  }
+
+  body.replaceChildren()
+  for (const option of store.waitOptions) {
+    const row = document.createElement('div')
+    row.className = 'wait-info-row'
+    row.textContent = t('board.waitInfoRow', {
+      discard: option.discard,
+      waits: option.waits.join('/'),
+      outs: option.outs,
+    })
+    body.appendChild(row)
+  }
 }
 
 function renderRiver(seat: number, riverId: string): void {
@@ -168,10 +201,10 @@ function renderLatestDiscard(): void {
   latest.appendChild(tile)
 }
 
-function playerAt(seat: number): { name?: string; score?: number; connected?: boolean; is_bot?: boolean; hand_count?: number } | undefined {
+function playerAt(seat: number): { name?: string; score?: number; connected?: boolean; is_bot?: boolean; hand_count?: number; hasDeclaredWait?: boolean } | undefined {
   if (seat === store.mySeat) {
     const mine = store.players.find((p) => p.seat === seat)
-    return { name: mine?.name ?? store.myName, score: mine?.score ?? 0, connected: true, is_bot: mine?.is_bot, hand_count: store.hand.length }
+    return { name: mine?.name ?? store.myName, score: mine?.score ?? 0, connected: true, is_bot: mine?.is_bot, hand_count: store.hand.length, hasDeclaredWait: store.hasDeclaredWait }
   }
   return store.others[seat]
 }

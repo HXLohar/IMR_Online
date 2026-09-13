@@ -112,7 +112,7 @@ export function renderControls(): void {
         // Show one button per valid straight-call combination
         for (const tiles of getStraightCallOptions(store.hand, store.claimTile)) {
           const btn = makeBtn(`${t('controls.eat')} ${tiles.join('')}`, () => {
-            send({ type: 'claim', claim: 'straight_call', tiles, window_id: store.claimWindowId ?? undefined })
+            send({ type: 'claim', claim: 'straight_call', tiles: tiles.filter(t => t !== store.claimTile), window_id: store.claimWindowId ?? undefined })
             clearClaim(true)
           })
           fillClaimTileBtn(btn, t('controls.eat'), tiles.filter(t => t !== store.claimTile), store.claimTile)

@@ -319,6 +319,7 @@ class GameState:
             'drawn': tile_to_str(tile),
             'your_hand': [tile_to_str(t) for t in p.hand],
             'options': options,
+            'wait_options': self._wait_options(p),
             'redraw_eligible': 'redraw' in options,
             'pass_count': p.pass_count,
             'straight_triplet_count': p.straight_triplet_count,
@@ -697,16 +698,27 @@ class GameState:
                 await self.send(seat, {'type': 'error', 'message': 'Pass/call limit reached'})
                 return
             # Find the specific straight call
-            chosen_tiles = action.get('tiles', [])
-            straight_hand_tiles = [t for t in p.hand if tile_to_str(t) in chosen_tiles]
-            if len(straight_hand_tiles) < 2:
-                # Fallback: pick first valid straight call
-                options = can_straight_call(p.hand, tile, p.pass_count, p.straight_triplet_count)
-                if not options:
-                    await self.send(seat, {'type': 'error', 'message': 'Invalid straight call'})
-                    return
-                straight_call = options[0]
-                straight_hand_tiles = [t for t in straight_call.tiles if t != tile]
+            options = can_straight_call(p.hand, tile, p.pass_count, p.straight_triplet_count)
+            if not options:
+                await self.send(seat, {'type': 'error', 'message': 'Invalid straight call'})
+                return
+            chosen_tiles = [t for t in action.get('tiles', []) if isinstance(t, str)]
+            remaining_hand = list(p.hand)
+            straight_hand_tiles: list[Tile] = []
+            for chosen in chosen_tiles:
+                matching = next((hand_tile for hand_tile in remaining_hand if tile_to_str(hand_tile) == chosen), None)
+                if matching is None:
+                    straight_hand_tiles = []
+                    break
+                straight_hand_tiles.append(matching)
+                remaining_hand.remove(matching)
+            legal_hand_sets = {
+                tuple(sorted(tile_to_str(hand_tile) for hand_tile in straight_call.tiles if hand_tile != tile))
+                for straight_call in options
+            }
+            if len(straight_hand_tiles) != 2 or tuple(sorted(chosen_tiles)) not in legal_hand_sets:
+                # Bots omit the two tiles; choose the first legal combination.
+                straight_hand_tiles = [hand_tile for hand_tile in options[0].tiles if hand_tile != tile]
             for t in straight_hand_tiles[:2]:
                 p.hand.remove(t)
             straight_tiles_full = sorted([tile] + straight_hand_tiles[:2])
@@ -730,6 +742,7 @@ class GameState:
             'drawn': None,
             'your_hand': [tile_to_str(t) for t in p.hand],
             'options': options,
+            'wait_options': self._wait_options(p),
             'redraw_eligible': False,
             'pass_count': p.pass_count,
             'straight_triplet_count': p.straight_triplet_count,
@@ -857,6 +870,7 @@ class GameState:
             'drawn': tile_to_str(tile),
             'your_hand': [tile_to_str(t) for t in p.hand],
             'options': options,
+            'wait_options': self._wait_options(p),
             'redraw_eligible': False,
             'pass_count': p.pass_count,
             'straight_triplet_count': p.straight_triplet_count,
@@ -1040,6 +1054,38 @@ class GameState:
                     visible.extend(call.tiles)
         return visible
 
+    def _wait_options(self, p: PlayerState) -> list[dict]:
+        """Return discard-to-wait choices with remaining tile counts."""
+        if p.has_declared_wait:
+            return []
+
+        visible = list(p.river) + list(p.hand)
+        for call in p.calls:
+            visible.extend(call.tiles)
+        for other in self.players:
+            if other is p:
+                continue
+            visible.extend(other.all_visible_discards())
+            for call in other.calls:
+                if call.call_type != CallType.CONCEALED_QUAD:
+                    visible.extend(call.tiles)
+
+        result = []
+        for discard in dict.fromkeys(p.hand):
+            hand_after = list(p.hand)
+            hand_after.remove(discard)
+            waiting = waits(hand_after, p.calls)
+            if not waiting:
+                continue
+            visible_after = list(visible)
+            visible_after.remove(discard)
+            result.append({
+                'discard': tile_to_str(discard),
+                'waits': [tile_to_str(tile) for tile in waiting],
+                'outs': sum(max(0, 4 - visible_after.count(tile)) for tile in waiting),
+            })
+        return result
+
     def _build_view(self, seat: int) -> dict:
         """Build the view dict that bots and the personal state use."""
         p = self.players[seat]
@@ -1126,6 +1172,7 @@ class GameState:
             'window_id': self.window_id,
             'window_deadline_at_ms': view['window_deadline_at_ms'],
             'waits': [tile_to_str(t) for t in p.declared_waits],
+            'wait_options': self._wait_options(p) if self.state == FSMState.PLAYER_TURN and seat == self.current_seat else [],
         }
 
     async def _debug_log(self, message: str) -> None:
@@ -1169,8 +1216,12 @@ class GameState:
             chosen = claim_action.get('tiles') or []
             if not chosen:
                 return normalized
-            chosen_key = sorted(chosen)
-            if any(sorted(tile_to_str(t) for t in c.tiles) == chosen_key for c in claims['straight_call']):
+            chosen_key = sorted(t for t in chosen if isinstance(t, str))
+            legal_hand_sets = [
+                sorted(tile_to_str(t) for t in c.tiles if t != tile)
+                for c in claims['straight_call']
+            ]
+            if len(chosen) == 2 and len(chosen_key) == 2 and chosen_key in legal_hand_sets:
                 return normalized
 
         return {'claim': 'skip'}

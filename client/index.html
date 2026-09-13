@@ -722,6 +722,60 @@
     .game-mode .river-tiles { grid-template-columns: repeat(6, 26px); gap: 4px; }
     .game-mode .river-slot { width: 26px; height: 36px; }
     .game-mode #log-container.is-open { width: 340px; }
+
+    /* Keep side players narrow and vertical, and reserve only a compact row for our discards. */
+    .game-mode .table-surface {
+      grid-template-rows: minmax(112px, .72fr) minmax(250px, 1.05fr) minmax(224px, .85fr);
+    }
+    .game-mode .opponent-top { width: 52%; }
+    .game-mode .center-area {
+      grid-template-columns: minmax(190px, .58fr) minmax(0, 1.8fr) minmax(190px, .58fr);
+    }
+    .game-mode .opponent-side { width: 100%; height: 100%; min-height: 0; }
+    .game-mode .opponent-side .opponent-hand { min-height: 270px; flex: 1 1 auto; }
+    .game-mode #player-area {
+      grid-template-rows: auto 44px 42px 78px 58px;
+      min-height: 0; padding: 10px 14px 12px;
+    }
+    .game-mode #player-area > .calls-area {
+      height: 44px; min-height: 0; overflow: hidden;
+    }
+    .game-mode #player-area > .river-area {
+      height: 42px; min-height: 0; max-height: 42px; margin-bottom: 0; overflow-x: auto; overflow-y: hidden;
+    }
+    .game-mode #player-area > .river-area .river-tiles {
+      display: flex; flex-wrap: nowrap; justify-content: center; width: max-content; min-width: 100%;
+    }
+    .game-mode #player-area > .river-area .small-tile,
+    .game-mode #player-area > .river-area .river-slot { flex: 0 0 26px; }
+    .game-mode #player-area #hand-area { min-height: 78px; }
+
+    .game-mode .battle-topbar { position: relative; }
+    .game-mode .player-section { position: relative; }
+    .game-mode .wait-info-toggle {
+      min-width: 36px; min-height: 36px; padding: 0; color: #241b06; background: #f0d98f;
+      border: 2px solid #fff1b0; border-radius: 50%; box-shadow: 0 0 0 3px rgba(215,185,109,.24), 0 4px 12px rgba(0,0,0,.28);
+      font-size: 21px; font-weight: 900; line-height: 1;
+    }
+    .game-mode .wait-info-toggle:hover:not(:disabled) { background: #fff1b0; }
+    .game-mode .wait-info-panel {
+      position: absolute; top: 72px; right: 0; z-index: 90; width: 430px; max-height: 360px; overflow: auto;
+      padding: 12px 14px; color: #eaf1eb; background: #102a22; border: 1px solid #d7b96d;
+      border-radius: 12px; box-shadow: 0 18px 42px rgba(0,0,0,.42);
+    }
+    .game-mode .wait-info-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #fff1b0; font-size: 14px; font-weight: 800; }
+    .game-mode .wait-info-close { min-width: 28px; min-height: 28px; padding: 0; color: #eaf1eb; background: transparent; border: 1px solid #476b59; border-radius: 6px; }
+    .game-mode .wait-info-row { padding: 9px 0; border-top: 1px solid rgba(184,215,195,.16); font-size: 13px; line-height: 1.45; }
+    .game-mode .wait-info-row:first-child { margin-top: 8px; }
+    .game-mode .wait-status-badge {
+      position: absolute; top: 10px; right: 12px; display: inline-flex; align-items: center; justify-content: center;
+      padding: 5px 10px; color: #241b06; background: #f0d98f; border: 2px solid #fff1b0; border-radius: 999px;
+      box-shadow: 0 0 0 3px rgba(215,185,109,.22), 0 4px 12px rgba(0,0,0,.32);
+      font-size: 12px; font-weight: 900; letter-spacing: .08em; animation: wait-pulse 1.4s ease-in-out infinite;
+    }
+    .game-mode .wait-status-badge[hidden] { display: none; }
+    @keyframes wait-pulse { 50% { box-shadow: 0 0 0 6px rgba(215,185,109,.08), 0 4px 16px rgba(0,0,0,.38); } }
+    @media (prefers-reduced-motion: reduce) { .game-mode .wait-status-badge { animation: none; } }
   </style>
 </head>
 <body>
@@ -884,14 +938,23 @@
           <span id="wall-counter" data-i18n="board.wall">牌牆：--</span>
         </div>
         <div class="battle-actions">
+          <button id="wait-info-toggle" class="board-action wait-info-toggle" data-i18n-aria-label="board.waitInfoToggle" aria-controls="wait-info-panel" aria-expanded="false" hidden>?</button>
           <span id="connection-indicator" class="connection-indicator" data-i18n="board.playerConnected">已連線</span>
           <button id="log-toggle" class="board-action" data-i18n="board.log.toggle" aria-controls="log-container" aria-expanded="false">紀錄</button>
+        </div>
+        <div id="wait-info-panel" class="wait-info-panel" hidden>
+          <div class="wait-info-header">
+            <span data-i18n="board.waitInfoTitle">聽牌提示</span>
+            <button id="wait-info-close" class="wait-info-close" data-i18n="common.close">關閉</button>
+          </div>
+          <div id="wait-info-body"></div>
         </div>
       </div>
       <div class="table-surface">
         <!-- Four-way table; labels and seats are filled from the authoritative snapshot. -->
         <div id="opp-top" class="player-section opponent-row opponent-top">
           <div class="section-label" data-i18n="seat.opposite">對家</div>
+          <span class="wait-status-badge" data-i18n="board.waitBadge" hidden>報聽</span>
           <div class="opponent-hand" id="hand-2" data-i18n-aria-label="board.tile.opponentHand" aria-label="對手手牌"></div>
           <div class="river-area" id="river-2"></div>
           <div class="calls-area" id="calls-2"></div>
@@ -899,6 +962,7 @@
         <div class="center-area">
           <div id="opp-left" class="player-section opponent-side opponent-left">
             <div class="section-label" data-i18n="seat.previous">上家</div>
+            <span class="wait-status-badge" data-i18n="board.waitBadge" hidden>報聽</span>
             <div class="opponent-hand" id="hand-3" data-i18n-aria-label="board.tile.opponentHand" aria-label="對手手牌"></div>
             <div class="river-area" id="river-3"></div>
             <div class="calls-area" id="calls-3"></div>
@@ -911,6 +975,7 @@
           </div>
           <div id="opp-right" class="player-section opponent-side opponent-right">
             <div class="section-label" data-i18n="seat.next">下家</div>
+            <span class="wait-status-badge" data-i18n="board.waitBadge" hidden>報聽</span>
             <div class="opponent-hand" id="hand-1" data-i18n-aria-label="board.tile.opponentHand" aria-label="對手手牌"></div>
             <div class="river-area" id="river-1"></div>
             <div class="calls-area" id="calls-1"></div>
