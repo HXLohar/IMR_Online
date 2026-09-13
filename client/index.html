@@ -669,51 +669,59 @@
       .player-section, .game-mode #hand-area .tile { transition: none; }
     }
 
-    /* Keep each game instance at one ratio; its contents scale with the window. */
+    /* Render the game on one logical 4:3 scene, then scale the whole scene uniformly. */
+    body.game-mode { align-items: center; justify-content: center; overflow: hidden; background: #000; }
     #app.game-mode {
-      --game-tile-width: clamp(24px, 3.4vw, 48px);
-      width: min(100%, calc((100vh - 16px) * 4 / 3));
-      height: auto;
-      aspect-ratio: 4 / 3;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
+      position: fixed; top: 50%; left: 50%; z-index: 0;
+      width: 1440px; height: 1080px; max-width: none; min-height: 0;
+      padding: 12px 18px 24px; display: flex; flex-direction: column; overflow: hidden;
+      aspect-ratio: auto; transform: translate(-50%, -50%) scale(var(--game-scale, 1));
+      transform-origin: center center;
     }
     .game-mode > #status-bar { flex: 0 0 auto; }
     .game-mode > .board { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
-    .game-mode .battle-topbar { flex: 0 0 auto; }
+    .game-mode .battle-topbar { flex: 0 0 auto; min-height: 72px; gap: 16px; }
+    .game-mode .battle-logo {
+      width: 250px; height: 72px; object-fit: contain; object-position: left center;
+      filter: drop-shadow(0 2px 5px rgba(0, 0, 0, .7));
+    }
+    .game-mode .battle-meta { display: flex; gap: 10px; font-size: 13px; }
+    .game-mode .battle-meta span + span { padding-left: 10px; border-left: 1px solid #365b4b; }
+    .game-mode .connection-indicator { display: inline; font-size: 12px; }
+    .game-mode .battle-tile-accent { display: none; }
     .game-mode .table-surface {
-      flex: 1 1 auto;
-      min-height: 0;
-      grid-template-rows: minmax(0, .8fr) minmax(0, 1.15fr) minmax(0, 1.3fr);
+      flex: 1 1 auto; min-height: 0; padding: 16px 18px 14px; gap: 12px;
+      grid-template-rows: minmax(118px, .8fr) minmax(180px, 1.15fr) minmax(204px, 1.3fr);
     }
-    .game-mode .opponent-side .opponent-hand,
-    .game-mode .opponent-side .river-area { min-height: 0; }
+    .game-mode .center-area {
+      grid-template-columns: minmax(170px, .85fr) minmax(200px, 1fr) minmax(170px, .85fr);
+      align-items: center; gap: 14px;
+    }
+    .game-mode .player-section { padding: 10px 12px; }
+    .game-mode .section-label { font-size: 13px; }
+    .game-mode .opponent-top { width: 68%; min-width: 0; justify-self: center; }
+    .game-mode .opponent-side .opponent-hand { min-height: 188px; }
+    .game-mode .opponent-side .river-area { min-height: 176px; }
+    .game-mode .opponent-side .opponent-hand-tiles .opponent-back {
+      flex-basis: 22px; width: 22px; height: 14px;
+    }
+    .game-mode .table-status { min-height: 150px; padding: 18px; }
+    .game-mode .turn-orbit { width: 56px; height: 56px; }
+    .game-mode .current-turn { font-size: 15px; }
+    .game-mode #player-area { padding: 12px 14px 14px; }
     .game-mode #hand-area .tile {
-      flex-basis: var(--game-tile-width);
-      width: var(--game-tile-width);
-      height: calc(var(--game-tile-width) * 1.375);
+      flex-basis: 48px; width: 48px; height: 66px;
     }
-    .game-mode .small-tile {
-      width: calc(var(--game-tile-width) * .54);
-      height: calc(var(--game-tile-width) * .75);
+    .game-mode #hand-area .tile.drawn-tile { margin-left: 12px; }
+    .game-mode #controls { min-height: 66px; }
+    .game-mode #controls button {
+      min-height: 42px; flex: 0 1 auto; padding: 8px 16px; font-size: 14px;
     }
-    .game-mode .opponent-back {
-      flex-basis: calc(var(--game-tile-width) * .29);
-      width: calc(var(--game-tile-width) * .29);
-      height: calc(var(--game-tile-width) * .46);
-    }
-    .game-mode .river-tiles {
-      grid-template-columns: repeat(6, calc(var(--game-tile-width) * .54));
-      gap: calc(var(--game-tile-width) * .08);
-    }
-    .game-mode .river-slot {
-      width: calc(var(--game-tile-width) * .54);
-      height: calc(var(--game-tile-width) * .75);
-    }
-    @media (max-width: 900px) {
-      .game-mode .table-surface { grid-template-rows: minmax(0, .55fr) minmax(0, .75fr) minmax(0, 1.7fr); }
-    }
+    .game-mode .small-tile { width: 26px; height: 36px; }
+    .game-mode .opponent-back { flex-basis: 14px; width: 14px; height: 22px; }
+    .game-mode .river-tiles { grid-template-columns: repeat(6, 26px); gap: 4px; }
+    .game-mode .river-slot { width: 26px; height: 36px; }
+    .game-mode #log-container.is-open { width: 340px; }
   </style>
 </head>
 <body>
@@ -870,13 +878,12 @@
     </section>
     <div class="board" id="board" style="display:none">
       <div class="battle-topbar">
-        <div class="battle-brand"><img class="battle-logo" src="/imr-logo-v2.png" data-i18n-alt="board.logo.alt" alt="IMR 標誌" /></div>
+        <div class="battle-brand"><img class="battle-logo" src="/imr-battle-mark.png" data-i18n-alt="board.logo.alt" alt="IMR 麻將標誌" /></div>
         <div class="battle-meta">
           <span id="round-label"></span>
           <span id="wall-counter" data-i18n="board.wall">牌牆：--</span>
         </div>
         <div class="battle-actions">
-          <img class="battle-tile-accent" src="/mahjong-accent-v1.png" data-i18n-alt="board.tileAccent.alt" alt="紅中與五筒麻將牌" />
           <span id="connection-indicator" class="connection-indicator" data-i18n="board.playerConnected">已連線</span>
           <button id="log-toggle" class="board-action" data-i18n="board.log.toggle" aria-controls="log-container" aria-expanded="false">紀錄</button>
         </div>

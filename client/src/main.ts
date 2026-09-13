@@ -43,11 +43,23 @@ class ApiError extends Error {
 
 function ui(id: string): HTMLElement { return document.getElementById(id)! }
 
+const GAME_SCENE_WIDTH = 1440
+const GAME_SCENE_HEIGHT = 1080
+
+function resizeGameScene(): void {
+  const scale = Math.min(window.innerWidth / GAME_SCENE_WIDTH, window.innerHeight / GAME_SCENE_HEIGHT)
+  document.documentElement.style.setProperty('--game-scale', String(Math.max(0.1, scale)))
+}
+
+window.addEventListener('resize', resizeGameScene)
+resizeGameScene()
+
 function showScreen(screen: 'auth' | 'lobby' | 'room' | 'game'): void {
   const shellMode = screen === 'lobby' || screen === 'room'
   ui('app').classList.toggle('auth-mode', screen === 'auth')
   ui('app').classList.toggle('shell-mode', shellMode)
   ui('app').classList.toggle('game-mode', screen === 'game')
+  document.body.classList.toggle('game-mode', screen === 'game')
   ui('auth-screen').style.display = screen === 'auth' ? '' : 'none'
   ui('lobby-screen').style.display = screen === 'lobby' ? '' : 'none'
   ui('room-screen').style.display = screen === 'room' ? '' : 'none'
