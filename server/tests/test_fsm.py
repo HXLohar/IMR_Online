@@ -4,7 +4,7 @@ import pytest
 from game import fsm
 from game.fsm import FSMState, GameState, resolve_claims, ClaimResolution
 from game.player_state import PlayerState
-from game.tiles import tile_from_str as T, tiles_from_str as tiles
+from game.tiles import tile_from_str as T, tile_to_str, tiles_from_str as tiles
 
 
 def mkdiscard(tile_str: str = '5c'):
@@ -301,3 +301,30 @@ def test_declare_wait_option_when_discard_leaves_tenpai():
 
     assert game._can_declare_wait(p)
     assert 'declare_wait' in game._compute_turn_options(p, T('9d'))
+
+
+def test_declare_wait_atomically_discards_selected_tile():
+    events = []
+
+    async def send(seat, msg):
+        events.append(('send', seat, msg))
+
+    async def broadcast(msg):
+        events.append(('broadcast', msg))
+
+    p = PlayerState(seat=0, name='Human')
+    p.hand = tiles('123b456b789b12c11d9d')
+    game = GameState([p], send, broadcast)
+    game.state = FSMState.PLAYER_TURN
+    game.current_seat = 0
+    game.wall = FakeWall([T('1b')])
+
+    asyncio.run(game._process_turn_action(0, {'action': 'declare_wait', 'tile': '9d'}))
+
+    assert p.has_declared_wait
+    assert p.river[-1] == T('9d')
+    assert T('9d') not in p.hand
+    assert any(event[0] == 'broadcast' and event[1]['type'] == 'wait_declared' for event in events)
+    assert any(event[0] == 'broadcast' and event[1]['type'] == 'discarded' for event in events)
+    your_turn = next(event[2] for event in reversed(events) if event[0] == 'send' and event[2]['type'] == 'your_turn')
+    assert your_turn['your_hand'] == [tile_to_str(tile) for tile in p.hand]

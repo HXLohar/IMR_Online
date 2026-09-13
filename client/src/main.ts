@@ -178,6 +178,7 @@ function applyMatchSnapshot(snapshot: Record<string, unknown>): void {
     claimWindowId: (snapshot['window_id'] as number | null) ?? null,
     claimDeadlineAt: (snapshot['window_deadline_at_ms'] as number | null) ?? null,
     calledRiverTiles,
+    lastDiscard: null,
   })
   showScreen('game')
   render()
@@ -287,7 +288,7 @@ function handleMessage(msg: unknown): void {
     case 'next_hand': {
       document.getElementById('result-overlay')!.classList.add('hidden')
       activeResult = null
-      updateStore({ handNo: Number(m['hand'] ?? store.handNo + 1), totalHands: Number(m['total_hands'] ?? store.totalHands), dealer: Number(m['dealer'] ?? store.dealer) })
+      updateStore({ handNo: Number(m['hand'] ?? store.handNo + 1), totalHands: Number(m['total_hands'] ?? store.totalHands), dealer: Number(m['dealer'] ?? store.dealer), lastDiscard: null })
       addLog(message('log.nextHand', { hand: Number(m['hand']), total: Number(m['total_hands']) }))
       break
     }
@@ -301,7 +302,7 @@ function handleMessage(msg: unknown): void {
       break
     }
     case 'match_lost': {
-      updateStore({ phase: 'lobby', hand: [], calls: [], river: [], myTurnOptions: [], claimOptions: [] })
+      updateStore({ phase: 'lobby', hand: [], calls: [], river: [], myTurnOptions: [], claimOptions: [], lastDiscard: null })
       showLobby()
       setStatus(message('status.matchLost'))
       break
@@ -347,6 +348,7 @@ function handleMessage(msg: unknown): void {
           myTurnOptions: [],
           others: buildOthers(),
           calledRiverTiles: {},
+          lastDiscard: null,
         })
         const wallCount = Number(m['wall_count'])
         setStatus(message('status.gameStarted', { dealer: () => seatLabel(Number(m['dealer'])) }))
@@ -372,8 +374,10 @@ function handleMessage(msg: unknown): void {
     }
 
     case 'your_turn': {
+      const authoritativeHand = Array.isArray(m['your_hand']) ? m['your_hand'] as string[] : null
       updateStore({
         currentSeat: store.mySeat,
+        ...(authoritativeHand ? { hand: authoritativeHand } : {}),
         drawnTile: m['drawn'] as string | null,
         myTurnOptions: m['options'] as string[],
         claimOptions: [],
@@ -384,7 +388,7 @@ function handleMessage(msg: unknown): void {
         claimWindowId: null,
         claimDeadlineAt: null,
       })
-      if (m['drawn']) {
+      if (!authoritativeHand && m['drawn']) {
         updateStore({ hand: [...store.hand, m['drawn'] as string] })
       }
       const deadline = m['deadline_at_ms'] as number | undefined
@@ -415,6 +419,7 @@ function handleMessage(msg: unknown): void {
           straightTripletCount: straightTripletCountFrom(m, store.straightTripletCount),
           turnId: null,
           turnDeadlineAt: null,
+          lastDiscard: { seat, riverIndex: newRiver.length - 1, tile: faceDown ? null : tile },
         })
       } else {
         const other = { ...store.others[seat] }
@@ -422,7 +427,10 @@ function handleMessage(msg: unknown): void {
         other.hand_count = Math.max(0, other.hand_count - 1)
         other.pass_count = (m['pass_count'] as number | undefined) ?? other.pass_count + (faceDown ? 1 : 0)
         other.straightTripletCount = straightTripletCountFrom(m, other.straightTripletCount)
-        updateStore({ others: { ...store.others, [seat]: other } })
+        updateStore({
+          others: { ...store.others, [seat]: other },
+          lastDiscard: { seat, riverIndex: other.river.length - 1, tile: faceDown ? null : tile },
+        })
       }
       addLog(message('log.discarded', {
         seat: () => seatLabel(seat), tile: () => faceDown ? t('game.faceDownDiscard') : String(tile),
@@ -474,6 +482,8 @@ function handleMessage(msg: unknown): void {
           updateStore({ calledRiverTiles: updated })
         }
       }
+
+      updateStore({ lastDiscard: null })
 
       const callStr = makeCallStr(callType, tiles, seat, fromSeat, claimedTile)
       if (seat === store.mySeat) {
@@ -555,6 +565,7 @@ function handleMessage(msg: unknown): void {
       const errorMessage = formatApiError(m['message'])
       addLog(message('log.error', { message: () => formatApiError(m['message']) }))
       setStatus(message('status.error', { message: () => formatApiError(m['message']) }))
+      if (store.phase === 'playing') send({ type: 'resume' })
       break
     }
 
@@ -698,7 +709,7 @@ function updatePlayerStatus(seat: number, connected: boolean, isBot?: boolean): 
       ...(store.others[seat] ? { [seat]: { ...store.others[seat], connected, is_bot: isBot ?? store.others[seat].is_bot } } : {}),
     },
   })
-  renderBoard()
+  render()
 }
 
 function callSourceLabel(callType: string, seat: number, fromSeat: number): string {
@@ -908,6 +919,24 @@ async function toggleProfileSection(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 document.getElementById('btn-export-log')?.addEventListener('click', () => exportLog())
+
+document.getElementById('log-toggle')?.addEventListener('click', () => {
+  const log = ui('log-container')
+  const button = ui('log-toggle')
+  const opening = !log.classList.contains('is-open')
+  log.classList.toggle('is-open', opening)
+  button.setAttribute('aria-expanded', String(opening))
+  if (opening) ui('log').scrollTop = 0
+})
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return
+  const log = ui('log-container')
+  if (!log.classList.contains('is-open')) return
+  log.classList.remove('is-open')
+  ui('log-toggle').setAttribute('aria-expanded', 'false')
+  ui('log-toggle').focus()
+})
 
 document.getElementById('btn-new-game')?.addEventListener('click', () => {
   document.getElementById('result-overlay')!.classList.add('hidden')

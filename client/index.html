@@ -88,7 +88,7 @@
       cursor: default;
       user-select: none;
       position: relative;
-      transition: transform 0.1s;
+      transition: box-shadow 0.1s;
       overflow: hidden;
     }
     .tile img {
@@ -114,9 +114,10 @@
       line-height: 1.4;
       pointer-events: none;
     }
-    .tile.selected { transform: translateY(-8px); border-color: #ffd700; }
+    .tile.selected { outline: 3px solid #ffd700; outline-offset: -3px; }
+    .tile.default-selected { outline: 3px dashed #ffd700; outline-offset: -3px; }
     .tile.clickable { cursor: pointer; }
-    .tile.clickable:hover { transform: translateY(-4px); }
+    .tile.clickable:hover { box-shadow: 0 0 0 2px rgba(255, 215, 0, 0.65); }
     .tile.clickable:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
       outline: 3px solid #ffd700;
       outline-offset: 2px;
@@ -538,6 +539,181 @@
       .seat-grid { grid-template-columns: 1fr; }
       .profile-section .profile-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
+
+    /* Battle table redesign: calm green surface, clear turn hierarchy, larger hand. */
+    #app.game-mode { max-width: 1440px; padding: 12px 18px 24px; }
+    .game-mode #status-bar {
+      margin: 0 0 10px; color: #d9e6dd; background: #102a22;
+      border: 1px solid rgba(215, 185, 109, .2); border-radius: 9px;
+    }
+    .game-mode .board { display: block; }
+    .battle-topbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      min-height: 46px; margin-bottom: 10px; padding: 0 4px; color: #dce9df;
+    }
+    .battle-brand { display: flex; align-items: center; min-width: 0; color: #f4efdf; }
+    .battle-logo { display: block; width: 132px; height: 38px; object-fit: contain; object-position: left center; }
+    .battle-meta, .battle-actions { display: flex; align-items: center; gap: 10px; }
+    .battle-tile-accent { display: block; width: 76px; height: 44px; object-fit: contain; }
+    .battle-meta { color: #c8d8cc; font-size: 13px; }
+    .battle-meta span + span { padding-left: 10px; border-left: 1px solid #365b4b; }
+    .connection-indicator { color: #97d3a0; font-size: 12px; }
+    .board-action { min-height: 34px; padding: 6px 12px; color: #e8f0e9; background: #17352b; border: 1px solid #476b59; font-size: 12px; }
+    .board-action:hover:not(:disabled) { background: #25513f; }
+    .table-surface {
+      position: relative; display: grid; grid-template-rows: minmax(118px, .8fr) minmax(180px, 1.15fr) minmax(204px, 1.3fr);
+      gap: 12px; min-height: 620px; padding: 16px 18px 14px; overflow: hidden;
+      background: radial-gradient(circle at 50% 45%, #2b5b49 0, #234c3d 54%, #1d4034 100%);
+      border: 1px solid #4f7b65; border-radius: 18px; box-shadow: inset 0 1px rgba(255,255,255,.08), 0 18px 46px rgba(2,14,9,.24);
+    }
+    .table-surface::before { content: ''; position: absolute; inset: 10px; border: 1px solid rgba(213, 232, 216, .09); border-radius: 12px; pointer-events: none; }
+    .table-surface > * { position: relative; z-index: 1; }
+    .player-section { padding: 10px 12px; color: #eaf1eb; background: rgba(10, 30, 23, .48); border: 1px solid rgba(184, 215, 195, .17); border-radius: 12px; transition: border-color .16s, box-shadow .16s, background .16s; }
+    .player-section.is-active-turn { background: rgba(18, 50, 37, .76); border-color: #d7b96d; box-shadow: 0 0 0 2px rgba(215,185,109,.15), 0 8px 22px rgba(3,18,11,.22); }
+    .section-label { min-height: 24px; margin-bottom: 7px; color: #f1ead8; font-size: 13px; line-height: 1.35; font-weight: 650; overflow-wrap: anywhere; }
+    .opponent-row { display: flex; flex-direction: column; align-items: center; justify-content: start; gap: 6px; }
+    .opponent-side { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+    .center-area { display: grid; grid-template-columns: minmax(170px, .85fr) minmax(200px, 1fr) minmax(170px, .85fr); align-items: center; gap: 14px; min-height: 0; }
+    .opponent-hand { display: flex; justify-content: center; align-items: center; min-height: 24px; max-width: 100%; overflow: visible; }
+    .opponent-hand-tiles { display: flex; flex-wrap: nowrap; gap: 0; transform-origin: center; }
+    .opponent-back { flex: 0 0 14px; width: 14px; height: 22px; margin: 0; border-radius: 3px; box-shadow: 0 1px 0 rgba(255,255,255,.16); }
+    .opponent-side .opponent-hand { justify-content: start; }
+    .opponent-right .opponent-hand { justify-content: end; }
+    .game-mode .river-area { grid-template-columns: repeat(6, 26px); gap: 4px; max-height: 104px; overflow: hidden; }
+    .game-mode .small-tile { width: 26px; height: 36px; border-color: rgba(247, 240, 217, .65); }
+    .game-mode .opponent-back { flex-basis: 14px; width: 14px; height: 22px; }
+    .game-mode .calls-area { min-height: 43px; margin-top: 5px; gap: 6px; }
+    .game-mode .call-group { padding: 3px; background: rgba(9, 27, 21, .55); border-color: rgba(194, 220, 199, .28); }
+    .game-mode .call-group.open-call { border-width: 1px; }
+    .game-mode .call-group.concealed-call { border-width: 1px; }
+    .game-mode .call-source { color: #bcd5c3; font-size: 10px; }
+    .opponent-top .opponent-hand-tiles { transform: rotate(180deg); }
+    .opponent-side .opponent-hand { min-height: 188px; }
+    .opponent-side .opponent-hand-tiles { transform: rotate(90deg); }
+    .game-mode .river-area { display: flex; align-items: center; justify-content: center; max-height: none; overflow: visible; }
+    .game-mode .river-tiles { display: grid; grid-template-columns: repeat(6, 26px); gap: 4px; transform-origin: center; }
+    .game-mode .river-slot { width: 26px; height: 36px; visibility: hidden; }
+    .opponent-side .river-area { min-height: 176px; }
+    .opponent-top .river-tiles { transform: rotate(180deg); }
+    .opponent-left .river-tiles { transform: rotate(90deg); }
+    .opponent-right .river-tiles { transform: rotate(-90deg); }
+    /* Rotate each exposed meld as one unit so its tiles stay in one row. */
+    .opponent-top .calls-area .call-group { transform: rotate(180deg); }
+    .opponent-left .calls-area .call-group { transform: rotate(90deg); }
+    .opponent-right .calls-area .call-group { transform: rotate(-90deg); }
+    .table-status { display: grid; justify-items: center; align-content: center; gap: 7px; min-width: 0; min-height: 150px; padding: 18px; color: #e8f0e9; text-align: center; }
+    .turn-orbit { display: grid; place-items: center; width: 56px; height: 56px; border: 1px solid rgba(215,185,109,.56); border-radius: 50%; }
+    .turn-orbit span { width: 10px; height: 10px; background: #d7b96d; border-radius: 50%; box-shadow: 0 0 0 7px rgba(215,185,109,.12); }
+    .current-turn { max-width: 240px; color: #fff6dc; font-size: 15px; line-height: 1.35; }
+    .deadline { min-height: 19px; color: #f0d98f; font-size: 13px; font-variant-numeric: tabular-nums; }
+    .latest-discard { display: none; min-height: 40px; }
+    .latest-discard.has-discard { display: block; }
+    .latest-tile { width: 30px; height: 42px; box-shadow: 0 0 0 3px rgba(215,185,109,.55), 0 6px 15px rgba(3,18,11,.3); animation: discard-pulse .18s ease-out; }
+    @keyframes discard-pulse { from { transform: translateY(-5px) scale(1.04); opacity: .55; } to { transform: translateY(0) scale(1); opacity: 1; } }
+    #player-area { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto auto; column-gap: 18px; align-items: end; padding: 12px 14px 14px; background: rgba(8, 26, 19, .7); }
+    #player-area > .section-label { grid-column: 1 / -1; }
+    #player-area > .calls-area { grid-column: 1 / -1; min-height: 44px; align-items: end; }
+    #player-area > .river-area { grid-column: 1 / -1; justify-content: center; max-height: 74px; margin-bottom: 2px; }
+    #hand-area { grid-column: 1 / -1; flex-wrap: nowrap; justify-content: center; min-height: 78px; padding: 8px 4px 4px; overflow-x: auto; overflow-y: hidden; }
+    .game-mode #hand-area .tile { flex: 0 0 48px; width: 48px; height: 66px; border-color: rgba(247, 240, 217, .78); }
+    .game-mode #hand-area .tile.drawn-tile { margin-left: 12px; }
+    .game-mode #hand-area .tile.selected { transform: translateY(-6px); outline-color: #fff2ad; box-shadow: 0 8px 14px rgba(4, 18, 11, .3); }
+    .game-mode #hand-area .tile.default-selected { transform: translateY(-3px); }
+    #controls { grid-column: 1 / -1; min-height: 66px; margin-top: 3px; padding: 8px 4px 0; border-top: 1px solid rgba(184, 215, 195, .14); }
+    .game-mode #controls button { min-height: 42px; border: 1px solid rgba(236, 221, 170, .28); border-radius: 8px; }
+    .game-mode #controls button.highlight { color: #211d10; background: #d7b96d; }
+    .game-mode #controls button.highlight:hover:not(:disabled) { background: #f0d990; }
+    .game-mode #controls button:disabled { color: #a2b0a6; background: #30463c; border-color: transparent; }
+    .declare-wait-badge { padding: 3px 7px; color: #1d2118; background: #d7b96d; border-radius: 999px; font-size: 10px; }
+    .game-mode #log-container { display: none; }
+    .game-mode #log-container.is-open { display: block; position: fixed; top: 76px; right: 18px; z-index: 80; width: min(340px, calc(100vw - 36px)); margin: 0; padding: 12px; background: #102a22; border: 1px solid #537762; border-radius: 12px; box-shadow: 0 18px 50px rgba(0,0,0,.35); }
+    .game-mode #log-container.is-open #log { max-height: min(60vh, 420px); padding: 4px; background: #0a1c16; }
+    .game-mode #log-header { margin-bottom: 8px; }
+    .game-mode #log-header span { color: #dbe9dd; font-size: 13px; }
+    .game-mode #btn-export-log { padding: 5px 8px; }
+    @media (max-width: 900px) {
+      #app.game-mode { padding: 8px 10px 18px; }
+      .table-surface { min-height: 560px; padding: 12px 10px; }
+      .battle-logo { width: 104px; height: 34px; }
+      .battle-tile-accent { width: 62px; height: 38px; }
+      .center-area { grid-template-columns: minmax(120px, .8fr) minmax(130px, 1fr) minmax(120px, .8fr); gap: 8px; }
+      .player-section { padding: 8px; }
+      .section-label { font-size: 11px; }
+      .game-mode #hand-area .tile { flex-basis: 42px; width: 42px; height: 58px; }
+    }
+    @media (max-width: 560px) {
+      .battle-topbar { gap: 8px; }
+      .battle-meta { display: grid; gap: 2px; font-size: 11px; }
+      .battle-meta span + span { padding-left: 0; border-left: 0; }
+      .connection-indicator { display: none; }
+      .battle-tile-accent { display: none; }
+      .table-surface { grid-template-rows: minmax(88px, .65fr) minmax(155px, 1fr) minmax(185px, 1.2fr); gap: 7px; min-height: 500px; }
+      .center-area { grid-template-columns: minmax(86px, .8fr) minmax(104px, 1fr) minmax(86px, .8fr); gap: 5px; }
+      .game-mode .river-tiles { grid-template-columns: repeat(6, 21px); gap: 2px; }
+      .game-mode .small-tile { width: 21px; height: 29px; }
+      .game-mode .river-slot { width: 21px; height: 29px; }
+      .opponent-side .river-area { min-height: 140px; }
+      .opponent-side .opponent-hand { min-height: 148px; }
+      .game-mode .opponent-back { flex-basis: 11px; width: 11px; height: 17px; }
+      .table-status { padding: 8px 2px; }
+      .turn-orbit { width: 40px; height: 40px; }
+      .current-turn { font-size: 12px; }
+      #player-area { padding: 8px; }
+      .game-mode #hand-area .tile { flex-basis: 36px; width: 36px; height: 50px; }
+      .game-mode #hand-area .tile.drawn-tile { margin-left: 8px; }
+      #controls { min-height: 58px; }
+      .game-mode #controls button { min-height: 44px; flex: 1 1 110px; padding: 6px 8px; font-size: 12px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .latest-tile { animation: none; }
+      .player-section, .game-mode #hand-area .tile { transition: none; }
+    }
+
+    /* Keep each game instance at one ratio; its contents scale with the window. */
+    #app.game-mode {
+      --game-tile-width: clamp(24px, 3.4vw, 48px);
+      width: min(100%, calc((100vh - 16px) * 4 / 3));
+      height: auto;
+      aspect-ratio: 4 / 3;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .game-mode > #status-bar { flex: 0 0 auto; }
+    .game-mode > .board { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+    .game-mode .battle-topbar { flex: 0 0 auto; }
+    .game-mode .table-surface {
+      flex: 1 1 auto;
+      min-height: 0;
+      grid-template-rows: minmax(0, .8fr) minmax(0, 1.15fr) minmax(0, 1.3fr);
+    }
+    .game-mode .opponent-side .opponent-hand,
+    .game-mode .opponent-side .river-area { min-height: 0; }
+    .game-mode #hand-area .tile {
+      flex-basis: var(--game-tile-width);
+      width: var(--game-tile-width);
+      height: calc(var(--game-tile-width) * 1.375);
+    }
+    .game-mode .small-tile {
+      width: calc(var(--game-tile-width) * .54);
+      height: calc(var(--game-tile-width) * .75);
+    }
+    .game-mode .opponent-back {
+      flex-basis: calc(var(--game-tile-width) * .29);
+      width: calc(var(--game-tile-width) * .29);
+      height: calc(var(--game-tile-width) * .46);
+    }
+    .game-mode .river-tiles {
+      grid-template-columns: repeat(6, calc(var(--game-tile-width) * .54));
+      gap: calc(var(--game-tile-width) * .08);
+    }
+    .game-mode .river-slot {
+      width: calc(var(--game-tile-width) * .54);
+      height: calc(var(--game-tile-width) * .75);
+    }
+    @media (max-width: 900px) {
+      .game-mode .table-surface { grid-template-rows: minmax(0, .55fr) minmax(0, .75fr) minmax(0, 1.7fr); }
+    }
   </style>
 </head>
 <body>
@@ -693,40 +869,56 @@
       </div>
     </section>
     <div class="board" id="board" style="display:none">
-      <!-- Four-way table; labels and seats are filled from the authoritative snapshot. -->
-      <div id="opp-top" class="player-section opponent-row">
+      <div class="battle-topbar">
+        <div class="battle-brand"><img class="battle-logo" src="/imr-logo-v2.png" data-i18n-alt="board.logo.alt" alt="IMR 標誌" /></div>
+        <div class="battle-meta">
+          <span id="round-label"></span>
+          <span id="wall-counter" data-i18n="board.wall">牌牆：--</span>
+        </div>
+        <div class="battle-actions">
+          <img class="battle-tile-accent" src="/mahjong-accent-v1.png" data-i18n-alt="board.tileAccent.alt" alt="紅中與五筒麻將牌" />
+          <span id="connection-indicator" class="connection-indicator" data-i18n="board.playerConnected">已連線</span>
+          <button id="log-toggle" class="board-action" data-i18n="board.log.toggle" aria-controls="log-container" aria-expanded="false">紀錄</button>
+        </div>
+      </div>
+      <div class="table-surface">
+        <!-- Four-way table; labels and seats are filled from the authoritative snapshot. -->
+        <div id="opp-top" class="player-section opponent-row opponent-top">
           <div class="section-label" data-i18n="seat.opposite">對家</div>
-        <div class="river-area" id="river-2"></div>
-        <div class="calls-area" id="calls-2"></div>
-      </div>
-      <div class="center-area">
-        <div id="opp-left" class="player-section" style="flex:0 0 220px">
-          <div class="section-label" data-i18n="seat.previous">上家</div>
-          <div class="river-area" id="river-3"></div>
-          <div class="calls-area" id="calls-3"></div>
+          <div class="opponent-hand" id="hand-2" data-i18n-aria-label="board.tile.opponentHand" aria-label="對手手牌"></div>
+          <div class="river-area" id="river-2"></div>
+          <div class="calls-area" id="calls-2"></div>
         </div>
-        <div style="flex:1;text-align:center">
-          <div id="wall-counter" data-i18n="board.wall">牌牆：--</div>
-          <div id="round-label" style="font-size:12px;color:#aaa;margin-top:4px"></div>
-          <div id="current-seat-label" style="font-size:12px;color:#aaa;margin-top:4px" aria-live="polite"></div>
-          <div id="deadline-label" style="font-size:14px;color:#ffd700;margin-top:4px" aria-live="polite"></div>
+        <div class="center-area">
+          <div id="opp-left" class="player-section opponent-side opponent-left">
+            <div class="section-label" data-i18n="seat.previous">上家</div>
+            <div class="opponent-hand" id="hand-3" data-i18n-aria-label="board.tile.opponentHand" aria-label="對手手牌"></div>
+            <div class="river-area" id="river-3"></div>
+            <div class="calls-area" id="calls-3"></div>
+          </div>
+          <div class="table-status">
+            <div class="turn-orbit" aria-hidden="true"><span></span></div>
+            <div id="current-seat-label" class="current-turn" aria-live="polite"></div>
+            <div id="deadline-label" class="deadline" aria-live="polite"></div>
+            <div id="latest-discard" class="latest-discard" data-i18n-aria-label="board.tile.latestDiscard" aria-label="最新棄牌"></div>
+          </div>
+          <div id="opp-right" class="player-section opponent-side opponent-right">
+            <div class="section-label" data-i18n="seat.next">下家</div>
+            <div class="opponent-hand" id="hand-1" data-i18n-aria-label="board.tile.opponentHand" aria-label="對手手牌"></div>
+            <div class="river-area" id="river-1"></div>
+            <div class="calls-area" id="calls-1"></div>
+          </div>
         </div>
-        <div id="opp-right" class="player-section" style="flex:0 0 220px">
-          <div class="section-label" data-i18n="seat.next">下家</div>
-          <div class="river-area" id="river-1"></div>
-          <div class="calls-area" id="calls-1"></div>
+        <div class="player-section" id="player-area">
+          <div class="section-label">
+            <span id="player-relation" data-i18n="seat.self">自家</span>
+            <span class="declare-wait-badge" id="declare-wait-badge" data-i18n="board.waitBadge" style="display:none">報聽</span>
+          </div>
+          <div class="calls-area" id="calls-0"></div>
+          <div class="river-area" id="river-0"></div>
+          <div id="hand-area"></div>
+          <div id="controls"></div>
         </div>
-      </div>
-      <!-- Player area -->
-      <div class="player-section" id="player-area">
-        <div class="section-label">
-          <span id="player-relation" data-i18n="seat.self">自家</span>
-          <span class="declare-wait-badge" id="declare-wait-badge" data-i18n="board.waitBadge" style="display:none">報聽</span>
-        </div>
-        <div class="calls-area" id="calls-0"></div>
-        <div class="river-area" id="river-0" style="margin-bottom:8px"></div>
-        <div id="hand-area"></div>
-        <div id="controls"></div>
       </div>
     </div>
     <div id="log-container" aria-live="polite">

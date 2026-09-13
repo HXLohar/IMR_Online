@@ -317,6 +317,7 @@ class GameState:
         await self.send(seat, {
             'type': 'your_turn',
             'drawn': tile_to_str(tile),
+            'your_hand': [tile_to_str(t) for t in p.hand],
             'options': options,
             'redraw_eligible': 'redraw' in options,
             'pass_count': p.pass_count,
@@ -727,6 +728,7 @@ class GameState:
         await self.send(seat, {
             'type': 'your_turn',
             'drawn': None,
+            'your_hand': [tile_to_str(t) for t in p.hand],
             'options': options,
             'redraw_eligible': False,
             'pass_count': p.pass_count,
@@ -853,6 +855,7 @@ class GameState:
         await self.send(seat, {
             'type': 'your_turn',
             'drawn': tile_to_str(tile),
+            'your_hand': [tile_to_str(t) for t in p.hand],
             'options': options,
             'redraw_eligible': False,
             'pass_count': p.pass_count,

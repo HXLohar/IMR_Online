@@ -3,12 +3,15 @@ import { send } from '../net/ws'
 import { sortTiles } from '../tiles'
 import { makeTile } from './board'
 import type { ClaimType } from '../protocol/messages'
+import { t, type TranslationKey } from '../i18n'
 
 function el(id: string): HTMLElement {
   return document.getElementById(id) as HTMLElement
 }
 
 let _selectedTile: string | null = null
+let _selectionExplicit = false
+let _handEventsBound = false
 let _autoSkipTimer: number | null = null
 let _waitAutoDiscardTimer: number | null = null
 
@@ -38,8 +41,13 @@ function tileCount(tile: string): number {
 
 function discard(tile: string, faceDown = false): void {
   send({ type: 'discard', tile, face_down: faceDown, turn_id: store.turnId ?? undefined })
-  _selectedTile = null
+  clearSelection()
   store.myTurnOptions = []
+}
+
+function clearSelection(): void {
+  _selectedTile = null
+  _selectionExplicit = false
 }
 
 function shortcutDiscardTiles(): string[] {
@@ -81,6 +89,7 @@ export function renderControls(): void {
   clearAutoSkipTimer()
   clearWaitAutoDiscardTimer()
   const footer = makeShortcutFooter()
+  if (!store.myTurnOptions.length || store.currentSeat !== store.mySeat) clearSelection()
 
   // --- Claim window ---
   if (store.claimOptions.length > 0) {
@@ -89,7 +98,7 @@ export function renderControls(): void {
       const info = document.createElement('div')
       info.style.cssText = 'display:flex;align-items:center;gap:6px;flex-basis:100%;justify-content:center;margin-bottom:4px'
       const lbl = document.createElement('span')
-      lbl.textContent = '待搶牌：'
+      lbl.textContent = t('controls.awaitingTile')
       lbl.style.fontSize = '13px'
       info.appendChild(lbl)
       info.appendChild(makeTile(store.claimTile))
@@ -102,11 +111,11 @@ export function renderControls(): void {
       if (opt === 'straight_call' && store.claimTile) {
         // Show one button per valid straight-call combination
         for (const tiles of getStraightCallOptions(store.hand, store.claimTile)) {
-          const btn = makeBtn(`吃 ${tiles.join('')}`, () => {
+          const btn = makeBtn(`${t('controls.eat')} ${tiles.join('')}`, () => {
             send({ type: 'claim', claim: 'straight_call', tiles, window_id: store.claimWindowId ?? undefined })
             clearClaim(true)
           })
-          fillClaimTileBtn(btn, '吃', tiles.filter(t => t !== store.claimTile), store.claimTile)
+          fillClaimTileBtn(btn, t('controls.eat'), tiles.filter(t => t !== store.claimTile), store.claimTile)
           if (!canAddStraightTripletCall()) {
             btn.disabled = true
             disabledClaims++
@@ -142,8 +151,8 @@ export function renderControls(): void {
       const canStraightCallSeat = store.claimFromSeat !== null && store.mySeat === (store.claimFromSeat + 1) % 4
       if (canStraightCallSeat && !store.claimOptions.includes('straight_call')) {
         for (const tiles of getStraightCallOptions(store.hand, store.claimTile)) {
-          const btn = makeBtn('吃', () => {})
-          fillClaimTileBtn(btn, '吃', tiles.filter(t => t !== store.claimTile), store.claimTile)
+          const btn = makeBtn(t('controls.eat'), () => {})
+          fillClaimTileBtn(btn, t('controls.eat'), tiles.filter(t => t !== store.claimTile), store.claimTile)
           btn.disabled = true
           disabledClaims++
           ctrl.appendChild(btn)
@@ -169,13 +178,13 @@ export function renderControls(): void {
     makeHandClickable()
 
     if (store.myTurnOptions.includes('discard')) {
-      ctrl.appendChild(makeBtn('打牌', () => {
-        if (!_selectedTile) { alert('請先點選要打的牌'); return }
+      ctrl.appendChild(makeBtn(t('controls.discard'), () => {
+        if (!_selectedTile) { alert(t('controls.selectDiscard')); return }
         discard(_selectedTile)
       }))
 
-      const passBtn = makeBtn('讓過（背面）', () => {
-        if (!_selectedTile) { alert('請先點選要打的牌'); return }
+      const passBtn = makeBtn(t('controls.passFaceDown'), () => {
+        if (!_selectedTile) { alert(t('controls.selectDiscard')); return }
         discard(_selectedTile, true)
       })
       passBtn.disabled = !canAddPass()
@@ -183,42 +192,42 @@ export function renderControls(): void {
     }
 
     if (store.myTurnOptions.includes('tsumo')) {
-      ctrl.appendChild(makeBtn('自摸', () => {
+      ctrl.appendChild(makeBtn(t('controls.tsumo'), () => {
         send({ type: 'self_action', action: 'tsumo', turn_id: store.turnId ?? undefined })
         store.myTurnOptions = []
       }))
     }
 
     if (store.myTurnOptions.includes('concealed_quad_declare')) {
-      ctrl.appendChild(makeBtn('暗槓', () => {
-        if (!_selectedTile) { alert('請先點選槓的牌'); return }
+      ctrl.appendChild(makeBtn(t('controls.concealedKong'), () => {
+        if (!_selectedTile) { alert(t('controls.selectKong')); return }
         send({ type: 'self_action', action: 'concealed_quad_declare', tile: _selectedTile, turn_id: store.turnId ?? undefined })
-        _selectedTile = null
+        clearSelection()
         store.myTurnOptions = []
       }))
     }
 
     if (store.myTurnOptions.includes('upgraded_quad_declare')) {
-      ctrl.appendChild(makeBtn('加槓', () => {
-        if (!_selectedTile) { alert('請先點選加槓的牌'); return }
+      ctrl.appendChild(makeBtn(t('controls.addedKong'), () => {
+        if (!_selectedTile) { alert(t('controls.selectAddedKong')); return }
         send({ type: 'self_action', action: 'upgraded_quad_declare', tile: _selectedTile, turn_id: store.turnId ?? undefined })
-        _selectedTile = null
+        clearSelection()
         store.myTurnOptions = []
       }))
     }
 
     if (store.myTurnOptions.includes('redraw')) {
-      ctrl.appendChild(makeBtn('重摸', () => {
+      ctrl.appendChild(makeBtn(t('controls.redraw'), () => {
         send({ type: 'self_action', action: 'redraw', turn_id: store.turnId ?? undefined })
         store.myTurnOptions = []
       }))
     }
 
     if (store.myTurnOptions.includes('declare_wait')) {
-      ctrl.appendChild(makeBtn('宣告聽牌', () => {
-        if (!_selectedTile) { alert('請先點選宣告聽牌後要打出的牌'); return }
+      ctrl.appendChild(makeBtn(t('controls.declareWait'), () => {
+        if (!_selectedTile) { alert(t('controls.selectDeclareWait')); return }
         send({ type: 'self_action', action: 'declare_wait', tile: _selectedTile, turn_id: store.turnId ?? undefined })
-        _selectedTile = null
+        clearSelection()
         store.myTurnOptions = []
       }))
     }
@@ -232,7 +241,8 @@ function scheduleWaitAutoDiscard(): void {
   if (!store.hasDeclaredWait || !drawn || !store.myTurnOptions.includes('discard')) return
 
   _selectedTile = drawn
-  el('hand-area').querySelector('.drawn-tile')?.classList.add('selected')
+  _selectionExplicit = false
+  syncHandSelection(el('hand-area'))
 
   if (store.myTurnOptions.some(option => option !== 'discard')) return
 
@@ -278,7 +288,7 @@ function fillClaimTileBtn(btn: HTMLButtonElement, label: string, handTiles: stri
 
 function makeShortcutFooter(): HTMLElement {
   const wrap = document.createElement('label')
-  wrap.title = '快捷出牌：1-9 對應第 1-9 張手牌；0/Q/W/E 對應第 10-13 張手牌；Space 對應剛摸到的牌；P = 讓過。'
+  wrap.title = t('controls.shortcut.title')
   wrap.style.cssText = 'flex-basis:100%;display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;opacity:.9;margin-top:4px'
 
   const input = document.createElement('input')
@@ -287,45 +297,76 @@ function makeShortcutFooter(): HTMLElement {
   input.addEventListener('change', () => { store.quickDiscardEnabled = input.checked })
 
   const text = document.createElement('span')
-  text.textContent = '快捷出牌：1-9=第1-9張；0/Q/W/E=第10-13張；Space=剛摸牌；P=讓過'
+  text.textContent = t('controls.shortcut.text')
 
   wrap.append(input, text)
   return wrap
 }
 
 function claimLabel(opt: string): string {
-  const map: Record<string, string> = {
-    win: '和牌', triplet_call: '碰', direct_quad_call: '槓', straight_call: '吃', skip: '過'
+  const map: Record<string, TranslationKey> = {
+    win: 'controls.win', triplet_call: 'controls.pong', direct_quad_call: 'controls.exposedKong',
+    straight_call: 'controls.eat', skip: 'controls.skip',
   }
-  return map[opt] ?? opt
+  return map[opt] ? t(map[opt]) : opt
 }
 
 function makeHandClickable(): void {
   const handEl = el('hand-area')
-  for (const child of Array.from(handEl.children) as HTMLElement[]) {
-    if (child.classList.contains('call-group')) continue
-    const tileStr = child.dataset.tile ?? ''
-    if (!tileStr) continue
-    child.addEventListener('click', () => {
-      for (const t of Array.from(handEl.children) as HTMLElement[])
-        t.classList.remove('selected')
-      if (_selectedTile === tileStr) {
-        _selectedTile = null
+  if (!_handEventsBound) {
+    handEl.addEventListener('click', (event) => {
+      const tile = handTileFromEvent(handEl, event)
+      if (!tile || !store.myTurnOptions.length || store.currentSeat !== store.mySeat) return
+      const tileStr = tile.dataset.tile ?? ''
+      if (_selectionExplicit && tile.classList.contains('selected')) {
+        clearSelection()
       } else {
         _selectedTile = tileStr
-        child.classList.add('selected')
+        _selectionExplicit = true
       }
-    }, { once: false })
-    child.addEventListener('dblclick', () => {
-      if (store.myTurnOptions.includes('discard')) discard(tileStr)
+      syncHandSelection(handEl, tile)
     })
-    child.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault()
-        child.click()
-      }
+    handEl.addEventListener('dblclick', (event) => {
+      const tile = handTileFromEvent(handEl, event)
+      if (tile && store.myTurnOptions.includes('discard')) discard(tile.dataset.tile ?? '')
     })
+    handEl.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      const tile = handTileFromEvent(handEl, event)
+      if (!tile) return
+      event.preventDefault()
+      tile.click()
+    })
+    _handEventsBound = true
   }
+  syncHandSelection(handEl)
+}
+
+function handTileFromEvent(handEl: HTMLElement, event: Event): HTMLElement | null {
+  const target = event.target instanceof Element ? event.target.closest<HTMLElement>('.tile.clickable') : null
+  return target?.parentElement === handEl ? target : null
+}
+
+function syncHandSelection(handEl: HTMLElement, preferred?: HTMLElement): void {
+  const tiles = Array.from(handEl.children).filter(
+    (child): child is HTMLElement => child instanceof HTMLElement && Boolean(child.dataset.tile),
+  )
+  for (const tile of tiles) tile.classList.remove('selected', 'default-selected')
+
+  if (_selectionExplicit && _selectedTile) {
+    const selected = preferred?.dataset.tile === _selectedTile
+      ? preferred
+      : tiles.find(tile => tile.dataset.tile === _selectedTile)
+    if (selected) {
+      selected.classList.add('selected')
+      return
+    }
+  }
+
+  const fallback = tiles.find(tile => tile.classList.contains('drawn-tile')) ?? tiles[tiles.length - 1]
+  _selectedTile = fallback?.dataset.tile ?? null
+  _selectionExplicit = false
+  fallback?.classList.add('default-selected')
 }
 
 // ---------------------------------------------------------------------------
@@ -343,7 +384,7 @@ export function initKeyboardShortcuts(render: () => void): void {
       const tile = store.drawnTile
       if (!tile) return
       send({ type: 'discard', tile, face_down: false, turn_id: store.turnId ?? undefined })
-      _selectedTile = null
+      clearSelection()
       store.myTurnOptions = []
       render()
       return
@@ -363,9 +404,9 @@ export function initKeyboardShortcuts(render: () => void): void {
     if (e.key === 'p' || e.key === 'P') {
       if (!store.myTurnOptions.includes('discard') || !_selectedTile) return
       if (!canAddPass()) return
-      if (!window.confirm(`確定讓過 ${_selectedTile}？`)) return
+      if (!window.confirm(t('controls.confirmPass', { tile: _selectedTile }))) return
       send({ type: 'discard', tile: _selectedTile, face_down: true, turn_id: store.turnId ?? undefined })
-      _selectedTile = null
+      clearSelection()
       store.myTurnOptions = []
       render()
     }

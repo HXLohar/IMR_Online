@@ -65,6 +65,7 @@ export interface GameStore {
 
   // river tile indices (per seat) that were claimed by another player
   calledRiverTiles: Record<number, number[]>
+  lastDiscard: { seat: number; riverIndex: number; tile: string | null } | null
 }
 
 export const store: GameStore = {
@@ -96,6 +97,7 @@ export const store: GameStore = {
   claimDeadlineAt: null,
   lastResult: null,
   calledRiverTiles: {},
+  lastDiscard: null,
 }
 
 export function updateStore(partial: Partial<GameStore>): void {
