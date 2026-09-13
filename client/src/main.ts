@@ -1,7 +1,7 @@
 import { connect, onMessage, send } from './net/ws'
 import { store, updateStore, type WaitOption } from './state/store'
 import { renderBoard, setStatus, addLog, exportLog } from './render/board'
-import { renderControls, initKeyboardShortcuts } from './render/controls'
+import { renderControls, initKeyboardShortcuts, resetTurnToggles } from './render/controls'
 import type { ClaimType, MatchLength } from './protocol/messages'
 import {
   applyTranslations, formatDateTime, formatTime, getLocale, message, onLocaleChange, setLocale, t,
@@ -389,6 +389,7 @@ function handleMessage(msg: unknown): void {
     }
 
     case 'your_turn': {
+      resetTurnToggles()
       const authoritativeHand = Array.isArray(m['your_hand']) ? m['your_hand'] as string[] : null
       updateStore({
         currentSeat: store.mySeat,

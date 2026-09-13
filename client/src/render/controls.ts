@@ -14,6 +14,13 @@ let _selectionExplicit = false
 let _handEventsBound = false
 let _autoSkipTimer: number | null = null
 let _waitAutoDiscardTimer: number | null = null
+let _passMode = false
+let _waitMode = false
+
+export function resetTurnToggles(): void {
+  _passMode = false
+  _waitMode = false
+}
 
 function clearAutoSkipTimer(): void {
   if (_autoSkipTimer !== null) window.clearTimeout(_autoSkipTimer)
@@ -40,9 +47,16 @@ function tileCount(tile: string): number {
 }
 
 function discard(tile: string, faceDown = false): void {
-  send({ type: 'discard', tile, face_down: faceDown, turn_id: store.turnId ?? undefined })
+  const declaringWait = _waitMode && !store.hasDeclaredWait && store.myTurnOptions.includes('declare_wait')
+  if (declaringWait) {
+    send({ type: 'self_action', action: 'declare_wait', tile, turn_id: store.turnId ?? undefined })
+  } else {
+    send({ type: 'discard', tile, face_down: faceDown || _passMode, turn_id: store.turnId ?? undefined })
+  }
   clearSelection()
   store.myTurnOptions = []
+  _passMode = false
+  if (!declaringWait && !store.hasDeclaredWait) _waitMode = false
 }
 
 function clearSelection(): void {
@@ -86,9 +100,11 @@ function getStraightCallOptions(hand: string[], claimTile: string): string[][] {
 export function renderControls(): void {
   const ctrl = el('controls')
   ctrl.innerHTML = ''
+  ctrl.classList.toggle('has-claim-options', store.claimOptions.length > 0)
   clearAutoSkipTimer()
   clearWaitAutoDiscardTimer()
   const footer = makeShortcutFooter()
+  footer.classList.add('control-footer')
   if (!store.myTurnOptions.length || store.currentSeat !== store.mySeat) clearSelection()
 
   // --- Claim window ---
@@ -96,7 +112,7 @@ export function renderControls(): void {
     // Display the tile being claimed
     if (store.claimTile) {
       const info = document.createElement('div')
-      info.style.cssText = 'display:flex;align-items:center;gap:6px;flex-basis:100%;justify-content:center;margin-bottom:4px'
+      info.className = 'claim-info'
       const lbl = document.createElement('span')
       lbl.textContent = t('controls.awaitingTile')
       lbl.style.fontSize = '13px'
@@ -114,7 +130,7 @@ export function renderControls(): void {
           const btn = makeBtn(`${t('controls.eat')} ${tiles.join('')}`, () => {
             send({ type: 'claim', claim: 'straight_call', tiles: tiles.filter(t => t !== store.claimTile), window_id: store.claimWindowId ?? undefined })
             clearClaim(true)
-          })
+          }, 'claim-option')
           fillClaimTileBtn(btn, t('controls.eat'), tiles.filter(t => t !== store.claimTile), store.claimTile)
           if (!canAddStraightTripletCall()) {
             btn.disabled = true
@@ -127,7 +143,7 @@ export function renderControls(): void {
         const btn = makeBtn(claimLabel(opt), () => {
           send({ type: 'claim', claim: opt as ClaimType, window_id: store.claimWindowId ?? undefined })
           clearClaim(opt !== 'skip')
-        })
+        }, 'claim-option')
         if ((opt === 'triplet_call' || opt === 'direct_quad_call') && store.claimTile) {
           fillClaimTileBtn(btn, claimLabel(opt), Array(opt === 'triplet_call' ? 2 : 3).fill(store.claimTile), store.claimTile)
         }
@@ -141,7 +157,7 @@ export function renderControls(): void {
     }
     if (!canAddStraightTripletCall() && store.claimTile) {
       if (!store.claimOptions.includes('triplet_call') && tileCount(store.claimTile) >= 2) {
-        const btn = makeBtn(claimLabel('triplet_call'), () => {})
+        const btn = makeBtn(claimLabel('triplet_call'), () => {}, 'claim-option')
         fillClaimTileBtn(btn, claimLabel('triplet_call'), Array(2).fill(store.claimTile), store.claimTile)
         btn.disabled = true
         disabledClaims++
@@ -151,7 +167,7 @@ export function renderControls(): void {
       const canStraightCallSeat = store.claimFromSeat !== null && store.mySeat === (store.claimFromSeat + 1) % 4
       if (canStraightCallSeat && !store.claimOptions.includes('straight_call')) {
         for (const tiles of getStraightCallOptions(store.hand, store.claimTile)) {
-          const btn = makeBtn(t('controls.eat'), () => {})
+          const btn = makeBtn(t('controls.eat'), () => {}, 'claim-option')
           fillClaimTileBtn(btn, t('controls.eat'), tiles.filter(t => t !== store.claimTile), store.claimTile)
           btn.disabled = true
           disabledClaims++
@@ -181,12 +197,13 @@ export function renderControls(): void {
       ctrl.appendChild(makeBtn(t('controls.discard'), () => {
         if (!_selectedTile) { alert(t('controls.selectDiscard')); return }
         discard(_selectedTile)
-      }))
+      }, 'control-action', 'discard-action'))
 
-      const passBtn = makeBtn(t('controls.passFaceDown'), () => {
-        if (!_selectedTile) { alert(t('controls.selectDiscard')); return }
-        discard(_selectedTile, true)
+      const passBtn = makeToggleBtn(t('controls.passFaceDown'), _passMode, (active) => {
+        _passMode = active
+        renderControls()
       })
+      passBtn.classList.add('pass-toggle')
       passBtn.disabled = !canAddPass()
       ctrl.appendChild(passBtn)
     }
@@ -195,7 +212,7 @@ export function renderControls(): void {
       ctrl.appendChild(makeBtn(t('controls.tsumo'), () => {
         send({ type: 'self_action', action: 'tsumo', turn_id: store.turnId ?? undefined })
         store.myTurnOptions = []
-      }))
+      }, 'control-action'))
     }
 
     if (store.myTurnOptions.includes('concealed_quad_declare')) {
@@ -204,7 +221,7 @@ export function renderControls(): void {
         send({ type: 'self_action', action: 'concealed_quad_declare', tile: _selectedTile, turn_id: store.turnId ?? undefined })
         clearSelection()
         store.myTurnOptions = []
-      }))
+      }, 'control-action'))
     }
 
     if (store.myTurnOptions.includes('upgraded_quad_declare')) {
@@ -213,23 +230,26 @@ export function renderControls(): void {
         send({ type: 'self_action', action: 'upgraded_quad_declare', tile: _selectedTile, turn_id: store.turnId ?? undefined })
         clearSelection()
         store.myTurnOptions = []
-      }))
+      }, 'control-action'))
     }
 
     if (store.myTurnOptions.includes('redraw')) {
       ctrl.appendChild(makeBtn(t('controls.redraw'), () => {
         send({ type: 'self_action', action: 'redraw', turn_id: store.turnId ?? undefined })
         store.myTurnOptions = []
-      }))
+      }, 'control-action'))
     }
 
-    if (store.myTurnOptions.includes('declare_wait')) {
-      ctrl.appendChild(makeBtn(t('controls.declareWait'), () => {
-        if (!_selectedTile) { alert(t('controls.selectDeclareWait')); return }
-        send({ type: 'self_action', action: 'declare_wait', tile: _selectedTile, turn_id: store.turnId ?? undefined })
-        clearSelection()
-        store.myTurnOptions = []
-      }))
+    if (store.hasDeclaredWait || store.myTurnOptions.includes('declare_wait')) {
+      const waitBtn = makeToggleBtn(t('controls.declareWait'), store.hasDeclaredWait || _waitMode, (active) => {
+        if (!store.hasDeclaredWait) {
+          _waitMode = active
+          renderControls()
+        }
+      })
+      waitBtn.classList.add('wait-toggle')
+      waitBtn.disabled = store.hasDeclaredWait
+      ctrl.appendChild(waitBtn)
     }
     scheduleWaitAutoDiscard()
   }
@@ -260,10 +280,18 @@ function clearClaim(keepTile = false): void {
   if (!keepTile) store.claimTile = null
 }
 
-function makeBtn(label: string, onClick: () => void): HTMLButtonElement {
+function makeBtn(label: string, onClick: () => void, ...classes: string[]): HTMLButtonElement {
   const btn = document.createElement('button')
+  btn.classList.add(...classes)
   btn.textContent = label
   btn.addEventListener('click', onClick)
+  return btn
+}
+
+function makeToggleBtn(label: string, pressed: boolean, onToggle: (active: boolean) => void): HTMLButtonElement {
+  const btn = makeBtn(label, () => onToggle(btn.getAttribute('aria-pressed') !== 'true'), 'control-toggle')
+  btn.setAttribute('aria-pressed', String(pressed))
+  btn.classList.toggle('is-pressed', pressed)
   return btn
 }
 
@@ -289,7 +317,7 @@ function fillClaimTileBtn(btn: HTMLButtonElement, label: string, handTiles: stri
 function makeShortcutFooter(): HTMLElement {
   const wrap = document.createElement('label')
   wrap.title = t('controls.shortcut.title')
-  wrap.style.cssText = 'flex-basis:100%;display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;opacity:.9;margin-top:4px'
+  wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;opacity:.9;margin-top:4px'
 
   const input = document.createElement('input')
   input.type = 'checkbox'
@@ -383,9 +411,7 @@ export function initKeyboardShortcuts(render: () => void): void {
       if (!store.myTurnOptions.includes('discard')) return
       const tile = store.drawnTile
       if (!tile) return
-      send({ type: 'discard', tile, face_down: false, turn_id: store.turnId ?? undefined })
-      clearSelection()
-      store.myTurnOptions = []
+      discard(tile)
       render()
       return
     }
