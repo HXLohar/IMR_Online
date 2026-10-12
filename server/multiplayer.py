@@ -12,6 +12,7 @@ from typing import Awaitable, Callable
 from bots.auto_call_bot import AutoCallBot
 from bots.efficiency_bot import EfficiencyBot
 from db import save_match
+from fairness import begin_match, finish_match, wall_hash, wall_order
 from game.fsm import GameState, FSMState
 from game.player_state import PlayerState
 from game.tiles import tile_to_str
@@ -71,7 +72,8 @@ class Match:
         self.broadcast_users = broadcast_users
         self.finished_fn = finished_fn
         self.hand_no = 0
-        self.seed = secrets.randbits(64)
+        self._server_key: str | None = None
+        self.fairness: dict | None = None
         self.replay: list[dict] = []
         self.finished = False
         self.offline_since: dict[int, float] = {}
@@ -90,7 +92,7 @@ class Match:
             else:
                 p.bot = EfficiencyBot()
             players.append(p)
-        self.game = GameState(players, self._send_seat, self._broadcast, seed=self.seed,
+        self.game = GameState(players, self._send_seat, self._broadcast,
                               hand_complete_fn=self._hand_complete, timeout_fn=self._game_timeout)
 
     def user_ids(self) -> list[int]:
@@ -115,11 +117,21 @@ class Match:
 
     async def start(self) -> None:
         async with self._lock:
+            if self.hand_no:
+                return
             self.hand_no = 1
-            self.replay.append({'type': 'wall_seed', 'hand': self.hand_no, 'seed': self.seed})
+            self._server_key, self.fairness = begin_match(self.id, [slot.payload(i) for i, slot in enumerate(self.seats)])
+            self._prepare_wall()
             await self._broadcast({'type': 'match_started', 'match_id': self.id, 'length': self.length, 'mode': self.mode,
+                                   'fairness': self.fairness,
                                    'players': [slot.payload(i) for i, slot in enumerate(self.seats)]})
             await self.game.start()
+
+    def _prepare_wall(self) -> None:
+        assert self.fairness is not None and self._server_key is not None
+        self.fairness = {**self.fairness, 'hand': self.hand_no, 'dealer': self.game.dealer}
+        self.game._wall_order = wall_order(self._server_key, self.fairness)
+        self.fairness['wall_hash'] = wall_hash(self.game._wall_order)
 
     async def _game_timeout(self, kind: str, serial: int) -> None:
         async with self._lock:
@@ -132,12 +144,11 @@ class Match:
             if pause:
                 await asyncio.sleep(pause)
             self.hand_no += 1
-            self.seed = secrets.randbits(64)
-            self.game._seed = self.seed
-            self.replay.append({'type': 'wall_seed', 'hand': self.hand_no, 'seed': self.seed})
             self.game.dealer = (self.game.dealer + 1) % 4
+            self._prepare_wall()
             self.game.state = FSMState.WAITING
             await self._broadcast({'type': 'next_hand', 'hand': self.hand_no, 'total_hands': self.length,
+                                   'fairness': self.fairness,
                                    'dealer': self.game.dealer})
             await self.game._deal()
             return
@@ -152,6 +163,7 @@ class Match:
         players = [{'user_id': slot.user_id, 'seat': seat, 'score': self.game.players[seat].score,
                     'rank': ranks[seat]} for seat, slot in enumerate(self.seats) if slot.user_id is not None]
         save_match(self.id, self.mode, self.length, self.replay, results, players)
+        finish_match(self.id)
         await self._broadcast({'type': 'match_finished', 'match_id': self.id, 'results': results,
                                'formal': self.mode == 'matchmaking'})
         if self.finished_fn:
@@ -243,6 +255,7 @@ class Match:
             await self._reconnect_user_locked(user_id)
             snapshot = self.game.snapshot(seat)
             snapshot.update({
+                'fairness': self.fairness,
                 'match_id': self.id,
                 'hand': self.hand_no,
                 'total_hands': self.length,

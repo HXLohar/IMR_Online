@@ -6,6 +6,7 @@ Usage from the repository root:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import tempfile
 from pathlib import Path
@@ -15,6 +16,7 @@ os.environ.setdefault('IMR_HAND_PAUSE_SECONDS', '0')
 os.environ.setdefault('IMR_BOT_DELAY_SECONDS', '0')
 os.environ.setdefault('IMR_DB_PATH', str(Path(tempfile.gettempdir()) / 'imr-online-smoke.sqlite3'))
 
+import db
 from db import init_db
 from multiplayer import Match, Seat
 
@@ -25,15 +27,15 @@ async def noop(*args) -> None:
 
 async def run() -> None:
     init_db()
+    with db._connect() as conn:
+        conn.execute('INSERT INTO fairness_keys VALUES (?, ?, ?, NULL)',
+                     (hashlib.sha256(bytes(32)).hexdigest(), bytes(32).hex(), 0))
     for index in range(10):
-        seed = 0x1A2B3C4D + index
         seats = [Seat(bot='efficiency') for _ in range(4)]
         match = Match(f'smoke-{index}', 'smoke', 1, seats, noop, noop)
-        match.seed = seed
-        match.game._seed = seed
         await match.start()
-        assert match.finished, f'seed {seed} did not finish (state={match.game.state.name}, wall={match.game.wall.remaining() if match.game.wall else None}, current={match.game.current_seat}, events={len(match.replay)}, tail={match.replay[-5:]})'
-        print(f'OK seed={seed} replay_events={len(match.replay)}')
+        assert match.finished, f'match {index} did not finish (state={match.game.state.name}, wall={match.game.wall.remaining() if match.game.wall else None}, current={match.game.current_seat}, events={len(match.replay)}, tail={match.replay[-5:]})'
+        print(f'OK match={index} replay_events={len(match.replay)}')
 
     sent = []
 
@@ -42,8 +44,6 @@ async def run() -> None:
 
     seats = [Seat(100 + seat, f'user{seat}') for seat in range(4)]
     match = Match('smoke-resume', 'smoke', 1, seats, capture, noop)
-    match.seed = 0x5EED
-    match.game._seed = match.seed
     await match.start()
     live_turn_id = match.game.turn_id
     await match.game.timeout('turn', live_turn_id + 1)
@@ -60,4 +60,6 @@ async def run() -> None:
 
 
 if __name__ == '__main__':
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory(prefix='imr-fairness-smoke-') as directory:
+        db.DB_PATH = Path(directory) / 'smoke.sqlite3'
+        asyncio.run(run())

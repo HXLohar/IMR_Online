@@ -670,9 +670,9 @@
     }
 
     /* Render the game on one logical 4:3 scene, then scale the whole scene uniformly. */
-    body.game-mode { align-items: center; justify-content: center; overflow: hidden; background: #000; }
+    body.game-mode { align-items: center; justify-content: flex-start; overflow-x: hidden; overflow-y: auto; background: #000; }
     #app.game-mode {
-      position: fixed; top: 50%; left: 50%; z-index: 0;
+      position: absolute; top: 50vh; left: 50%; z-index: 0;
       width: 1440px; height: 1080px; max-width: none; min-height: 0;
       padding: 12px 18px 24px; display: flex; flex-direction: column; overflow: hidden;
       aspect-ratio: auto; transform: translate(-50%, -50%) scale(var(--game-scale, 1));
@@ -873,6 +873,12 @@
       grid-column: 1 / -1; width: 100%; margin-top: 4px;
     }
     @media (prefers-reduced-motion: reduce) { .game-mode .wait-status-badge { animation: none; } }
+    #fairness-footer { width: 100%; max-width: 1200px; padding: 24px 18px; color: #d9e4db; background: #0b1915; }
+    #fairness-footer code, #fairness-footer pre { display: block; white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; }
+    #fairness-footer nav { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+    #fairness-footer a { display: inline-block; padding: 8px 16px; border-radius: 6px; color: #fff; background: #2a6a2a; text-decoration: none; }
+    #fairness-footer a:focus-visible { outline: 3px solid #ffd700; outline-offset: 2px; }
+    body.game-mode #fairness-footer { margin-top: 100vh; }
   </style>
 </head>
 <body>
@@ -1098,6 +1104,15 @@
       <div id="log"></div>
     </div>
   </div>
+  <footer id="fairness-footer">
+    <p data-i18n="fairness.currentHash">目前伺服器密鑰 SHA-256</p>
+    <code id="fairness-key-hash" aria-live="polite">…</code>
+    <nav aria-label="Fairness">
+      <a href="/fairness.html?view=history" target="_blank" rel="noopener noreferrer" data-i18n="fairness.history">密鑰更換紀錄</a>
+      <a id="fairness-verify-link" href="/fairness.html?view=verify" target="_blank" rel="noopener noreferrer" data-i18n="fairness.verify">驗證對局</a>
+    </nav>
+    <details id="fairness-proof-box" hidden><summary data-i18n="fairness.proof">本局驗證資料</summary><pre id="fairness-proof"></pre></details>
+  </footer>
   <div id="result-overlay" class="hidden">
     <div id="result-box">
       <h2 id="result-title" data-i18n="result.handSettlement">結算</h2>

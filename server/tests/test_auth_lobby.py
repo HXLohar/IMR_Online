@@ -7,6 +7,12 @@ from multiplayer import Lobby
 from protocol.messages import parse_client_message
 
 
+@pytest.fixture(autouse=True)
+def isolated_database(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, 'DB_PATH', tmp_path / 'lobby.sqlite3')
+    db.init_db()
+
+
 def test_password_sessions_and_replay_access(tmp_path, monkeypatch):
     monkeypatch.setattr(db, 'DB_PATH', tmp_path / 'imr.sqlite3')
     db.init_db()

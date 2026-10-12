@@ -8,16 +8,22 @@ import os
 import secrets
 import sqlite3
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 DB_PATH = Path(os.getenv('IMR_DB_PATH', Path(__file__).with_name('imr.sqlite3')))
 
 
-def _connect() -> sqlite3.Connection:
+@contextmanager
+def _connect():
     conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute('PRAGMA foreign_keys = ON')
-    return conn
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute('PRAGMA foreign_keys = ON')
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def init_db() -> None:
@@ -53,6 +59,26 @@ def init_db() -> None:
             PRIMARY KEY (match_id, user_id)
         );
         CREATE INDEX IF NOT EXISTS idx_match_players_user ON match_players(user_id);
+        CREATE TABLE IF NOT EXISTS fairness_keys (
+            hash TEXT PRIMARY KEY,
+            secret TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            retired_at REAL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS fairness_one_current_key
+            ON fairness_keys((1)) WHERE retired_at IS NULL;
+        CREATE TABLE IF NOT EXISTS fairness_counts (
+            user_id INTEGER PRIMARY KEY,
+            games_played INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS fairness_matches (
+            match_id TEXT PRIMARY KEY,
+            key_hash TEXT NOT NULL REFERENCES fairness_keys(hash),
+            context_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            finished_at REAL
+        );
         ''')
 
 

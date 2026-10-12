@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   publicDir: '../images',
+  build: { rollupOptions: { input: ['index.html', 'fairness.html'] } },
   server: {
     port: 5173,
     proxy: {

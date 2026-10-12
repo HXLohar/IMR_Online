@@ -3,6 +3,7 @@ import { store, updateStore, type WaitOption } from './state/store'
 import { renderBoard, setStatus, addLog, exportLog } from './render/board'
 import { renderControls, initKeyboardShortcuts, resetTurnToggles } from './render/controls'
 import type { ClaimType, MatchLength } from './protocol/messages'
+import { initFairnessFooter, showFairnessProof } from './fairness-footer'
 import {
   applyTranslations, formatDateTime, formatTime, getLocale, message, onLocaleChange, setLocale, t,
   type TranslationKey,
@@ -289,6 +290,7 @@ function handleMessage(msg: unknown): void {
       break
     }
     case 'match_started': {
+      showFairnessProof(m['fairness'])
       const players = m['players'] as Array<{ seat: number; user_id: number | null; name: string; is_bot: boolean; connected?: boolean; score?: number }>
       const mine = players.find((player) => player.user_id === activeUser?.id)
       updateStore({ players: players as typeof store.players, mySeat: mine?.seat ?? 0, phase: 'playing', totalHands: Number(m['length'] ?? 1), waitOptions: [] })
@@ -299,6 +301,7 @@ function handleMessage(msg: unknown): void {
       break
     }
     case 'next_hand': {
+      showFairnessProof(m['fairness'])
       document.getElementById('result-overlay')!.classList.add('hidden')
       activeResult = null
       updateStore({ handNo: Number(m['hand'] ?? store.handNo + 1), totalHands: Number(m['total_hands'] ?? store.totalHands), dealer: Number(m['dealer'] ?? store.dealer), lastDiscard: null, waitOptions: [] })
@@ -306,11 +309,13 @@ function handleMessage(msg: unknown): void {
       break
     }
     case 'match_snapshot': {
+      showFairnessProof(m['fairness'])
       applyMatchSnapshot(m)
       setStatus(message('status.snapshot'))
       break
     }
     case 'match_resume': {
+      showFairnessProof((m['snapshot'] as Record<string, unknown>)['fairness'])
       applyMatchSnapshot(m['snapshot'] as Record<string, unknown>)
       break
     }
@@ -922,6 +927,16 @@ function renderProfileSection(): void {
         const pre = document.createElement('pre')
         pre.textContent = JSON.stringify(replay, null, 2)
         button.replaceWith(pre)
+        for (const event of replay.replay ?? []) {
+          const proof = event.message?.fairness
+          if (!proof) continue
+          const link = document.createElement('a')
+          link.href = `/fairness.html?view=verify#proof=${encodeURIComponent(JSON.stringify(proof))}`
+          link.target = '_blank'
+          link.rel = 'noopener noreferrer'
+          link.textContent = `${t('fairness.verify')} · ${t('fairness.hand')} ${proof.hand}`
+          details.append(link, document.createElement('br'))
+        }
       } catch {
         button.disabled = false
         button.textContent = t('profile.loadError')
@@ -1006,6 +1021,7 @@ document.getElementById('btn-new-game')?.addEventListener('click', () => {
 // ---------------------------------------------------------------------------
 
 setStatus(message('status.connecting'))
+initFairnessFooter()
 onMessage(handleMessage)
 initKeyboardShortcuts(render)
 

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from db import authenticate, create_session, create_user, delete_session, init_db, profile, replay_for_user, replays_for_user, user_from_session
 from multiplayer import Lobby
+from fairness import close_interrupted_matches, public_keys
 from protocol.messages import parse_client_message
 
 logging.basicConfig(level=logging.INFO)
@@ -68,6 +69,14 @@ async def healthz():
 @app.on_event('startup')
 async def startup() -> None:
     init_db()
+    close_interrupted_matches()
+    public_keys()
+
+
+@app.get('/api/fairness')
+async def get_fairness():
+    from fastapi.responses import JSONResponse
+    return JSONResponse(public_keys(), headers={'Cache-Control': 'no-store'})
 
 
 @app.post('/api/auth/register')
@@ -244,3 +253,7 @@ if dist_index.exists():
     @app.get('/')
     async def index():
         return FileResponse(dist_index)
+
+    @app.get('/fairness.html')
+    async def fairness_page():
+        return FileResponse(dist_index.parent / 'fairness.html')

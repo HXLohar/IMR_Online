@@ -9,10 +9,14 @@ FULL_WALL_SIZE = 136  # 34 types × 4 copies
 
 
 class Wall:
-    def __init__(self, seed: int | None = None):
-        self._rng = random.Random(seed)
-        tiles = ALL_TILES * 4
-        self._rng.shuffle(tiles)
+    def __init__(self, seed: int | None = None, order: list[int] | None = None):
+        if order is not None:
+            if sorted(order) != list(range(FULL_WALL_SIZE)):
+                raise ValueError('Wall order must contain every physical tile exactly once')
+            tiles = [ALL_TILES[index % 34] for index in order]
+        else:
+            tiles = ALL_TILES * 4
+            random.Random(seed).shuffle(tiles)
         self._tiles: list[Tile] = tiles
         # Dead wall: last 14 tiles (for quad supplements)
         # For Step 1, just track a draw pointer and supplement pointer.

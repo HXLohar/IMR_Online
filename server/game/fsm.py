@@ -132,6 +132,7 @@ class GameState:
         self.send = send_fn or (lambda seat, msg: None)
         self.broadcast = broadcast_fn or (lambda msg: None)
         self._seed = seed
+        self._wall_order: list[int] | None = None
         self.hand_complete_fn = hand_complete_fn
         self.timeout_fn = timeout_fn
 
@@ -245,7 +246,7 @@ class GameState:
     async def _deal(self) -> None:
         self._cancel_timeout()
         self.state = FSMState.DEALING
-        self.wall = Wall(seed=self._seed)
+        self.wall = Wall(seed=self._seed, order=self._wall_order)
         self._draw_count = 0
         self._opening_wait = {}
         self._pending_robbing_quad = False
