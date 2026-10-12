@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import ts from 'typescript'
 
 const source = await readFile(new URL('../src/fairness-algorithm.ts', import.meta.url), 'utf8')
@@ -13,6 +13,7 @@ assert.deepEqual(result.hands, vector.hands)
 assert.equal(result.dealerDraw, vector.dealer_draw)
 assert.equal(result.keyHash, vector.context.server_key_hash)
 assert.equal(result.wallHash, vector.wall_hash)
+await Promise.all([...new Set(result.wall)].map(tile => access(new URL(`../../images/tiles/${tile}.png`, import.meta.url))))
 await assert.rejects(generateWall('ff'.repeat(32), vector.context), /fairness.keyMismatch/)
 await assert.rejects(generateWall(vector.secret, { ...vector.context, hand: 2 }), /fairness.wallMismatch/)
 await assert.rejects(generateWall('00', vector.context), /fairness.invalidKey/)
@@ -23,4 +24,4 @@ const reordered = structuredClone(vector.context)
 reordered.players.reverse()
 assert.throws(() => parseContext(reordered), /fairness.invalidContext/)
 assert.throws(() => parseContext({ ...vector.context, version: 'unknown' }), /fairness.invalidContext/)
-console.log('Fairness: cross-language vector, initial hands, commitment mismatches and invalid inputs passed.')
+console.log('Fairness: cross-language vector, initial hands, tile images, commitment mismatches and invalid inputs passed.')

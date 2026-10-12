@@ -1,9 +1,11 @@
 import { FAIRNESS_VERSION, generateWall, parseContext, type FairnessContext, type FairnessPlayer } from './fairness-algorithm'
 import { applyTranslations, formatDateTime, getLocale, onLocaleChange, setLocale, t } from './i18n'
+import { makeTile } from './render/tile'
 
 const element = (id: string): HTMLElement => document.getElementById(id)!
 const field = (id: string): HTMLInputElement => element(id) as HTMLInputElement
 const errorBox = element('error')
+const tileView = element('tile-view') as HTMLSelectElement
 const historyMode = new URLSearchParams(location.search).get('view') === 'history'
 element(historyMode ? 'history' : 'verify').hidden = false
 const playerTypes = ['human', 'efficiency', 'auto_call', 'discard_only']
@@ -29,12 +31,18 @@ function showError(key: string): void {
   errorBox.textContent = t(key)
 }
 
-function addResult(parent: HTMLElement, label: string, text: string): void {
+function addResult(parent: HTMLElement, label: string, value: string | string[]): void {
   const heading = document.createElement('h2')
   heading.textContent = label
-  const pre = document.createElement('pre')
-  pre.textContent = text
-  parent.append(heading, pre)
+  const images = Array.isArray(value) && tileView.value === 'images'
+  const content = document.createElement(images ? 'div' : 'pre')
+  if (images) {
+    content.className = 'fairness-tiles'
+    content.append(...value.map(tile => makeTile(tile)))
+  } else {
+    content.textContent = Array.isArray(value) ? value.join(' ') : value
+  }
+  parent.append(heading, content)
 }
 
 function render(): void {
@@ -61,6 +69,7 @@ function render(): void {
   const result = element('verification-output')
   result.replaceChildren()
   result.hidden = !output
+  element('tile-view-control').hidden = !output
   if (output && outputContext) {
     const status = document.createElement('p')
     status.setAttribute('role', 'status')
@@ -68,11 +77,9 @@ function render(): void {
     result.append(status)
     addResult(result, t('fairness.hash'), output.keyHash)
     addResult(result, t('fairness.wallHash'), output.wallHash)
-    output.hands.forEach((hand, seat) => addResult(result, t('fairness.seat', { seat }), hand.join(' ')))
-    const draw = document.createElement('p')
-    draw.textContent = `${t('fairness.seat', { seat: outputContext.dealer })} · ${t('fairness.dealerDraw', { tile: output.dealerDraw })}`
-    result.append(draw)
-    addResult(result, t('fairness.wall'), output.wall.join(' '))
+    output.hands.forEach((hand, seat) => addResult(result, t('fairness.seat', { seat }), hand))
+    addResult(result, `${t('fairness.seat', { seat: outputContext.dealer })} · ${t('fairness.dealerDraw')}`, [output.dealerDraw])
+    addResult(result, t('fairness.wall'), output.wall)
     addResult(result, t('fairness.physical'), output.order.join(' '))
   }
 }
@@ -127,6 +134,7 @@ element('verify-form').addEventListener('submit', async event => {
 })
 
 const language = element('language-select') as HTMLSelectElement
+tileView.addEventListener('change', render)
 language.value = getLocale()
 language.addEventListener('change', () => {
   const next = language.value

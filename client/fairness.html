@@ -24,6 +24,7 @@
         <label for="expected-wall-hash" data-i18n="fairness.expectedWall"></label><input id="expected-wall-hash" pattern="[a-fA-F0-9]{64}" maxlength="64" spellcheck="false" />
         <button id="verify-button" type="submit" data-i18n="fairness.calculate"></button>
       </form>
+      <label id="tile-view-control" hidden><span data-i18n="fairness.tileView"></span><select id="tile-view"><option value="text" data-i18n="fairness.textView"></option><option value="images" data-i18n="fairness.imageView"></option></select></label>
       <section id="verification-output" hidden></section>
     </section>
     <p id="error" role="alert" aria-live="polite"></p>
