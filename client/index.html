@@ -883,22 +883,42 @@
     .game-mode .opponent-side.has-declared-wait .player-info { padding-right: 76px; }
     .game-mode .wait-status-badge { top: 5px; right: 5px; }
     .game-mode #player-area .player-info { grid-column: 1 / -1; grid-row: 1; }
+    .game-mode #player-area .player-info { min-height: 54px; padding-right: 60%; }
+    .game-mode #action-menu[hidden] { display: none !important; }
+    .game-mode #action-menu {
+      position: absolute; top: 50%; right: 8px; display: flex; flex-wrap: wrap; justify-content: flex-end;
+      gap: 5px; width: min(58%, 700px); transform: translateY(-50%);
+    }
+    .game-mode #action-menu button {
+      min-height: 34px; padding: 4px 12px; border: 1px solid rgba(236, 221, 170, .28);
+      border-radius: 7px; color: #e8eee7; background: #17372d; font-size: 12px; white-space: nowrap;
+    }
+    .game-mode #action-menu button.highlight { color: #211d10; background: #d7b96d; }
+    .game-mode #action-menu button.highlight:hover:not(:disabled) { background: #f0d990; }
+    .game-mode #action-menu button:disabled { color: #82938a; background: #253b33; border-color: rgba(148,194,170,.12); opacity: .68; }
+    .game-mode #action-menu .menu-cancel { margin-left: auto; }
+    .game-mode #action-menu .tile-choice { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 3px 7px; }
+    .game-mode #action-menu .choice-tiles { display: flex; align-items: center; gap: 1px; }
+    .game-mode #action-menu .choice-tiles .small-tile { width: 18px; height: 25px; }
 
     .game-mode .table-center { position: relative; width: 100%; height: 100%; min-height: 250px; }
     .game-mode .table-center .river-area {
       position: absolute; display: flex; align-items: center; justify-content: center;
-      min-height: 0; max-height: none; margin: 0; overflow: visible;
-      background: rgba(35, 105, 73, .78); border: 1px solid rgba(125, 207, 145, .38);
-      border-radius: 8px; box-shadow: inset 0 1px rgba(255,255,255,.08), 0 5px 14px rgba(3,18,11,.26);
+      box-sizing: border-box; min-height: 0; max-height: none; margin: 0; overflow: hidden;
+      background: rgba(35, 105, 73, .54); border: 0; border-radius: 8px; box-shadow: none;
     }
     .game-mode .table-center #river-2,
-    .game-mode .table-center #river-0 { left: 50%; width: min(48%, 210px); height: 72px; transform: translateX(-50%); }
+    .game-mode .table-center #river-0 { left: 50%; width: 200px; height: 120px; transform: translateX(-50%); }
     .game-mode .table-center #river-2 { top: 0; }
     .game-mode .table-center #river-0 { bottom: 0; }
     .game-mode .table-center #river-3,
-    .game-mode .table-center #river-1 { top: 50%; width: min(27%, 128px); height: 170px; transform: translateY(-50%); }
+    .game-mode .table-center #river-1 { top: 50%; width: 200px; height: 120px; transform: translateY(-50%); }
     .game-mode .table-center #river-3 { left: 0; }
     .game-mode .table-center #river-1 { right: 0; }
+    .game-mode .table-center #river-2 .river-tiles,
+    .game-mode .table-center #river-0 .river-tiles { grid-template-columns: repeat(7, 26px); gap: 2px; }
+    .game-mode .table-center #river-3 .river-tiles,
+    .game-mode .table-center #river-1 .river-tiles { grid-template-columns: repeat(4, 26px); gap: 2px; }
     .game-mode .table-center #river-2 .river-tiles { transform: rotate(180deg); }
     .game-mode .table-center #river-3 .river-tiles { transform: rotate(90deg); }
     .game-mode .table-center #river-1 .river-tiles { transform: rotate(-90deg); }
@@ -922,16 +942,18 @@
     .game-mode #player-area > #controls { grid-row: 3; }
     .game-mode .hand-deadline {
       position: absolute; top: 4px; right: 9px; z-index: 2; color: #ffe36f;
-      font-size: 25px; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums;
+      font-size: 36px; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums;
     }
     .game-mode #time-cards {
-      position: absolute; bottom: 3px; left: 5px; z-index: 2; display: flex; align-items: center;
+      position: absolute; top: 42px; right: 8px; z-index: 2; display: flex; align-items: center; justify-content: flex-end;
       gap: 1px; min-height: 40px;
     }
     .game-mode #time-cards img { width: 37px; height: 40px; object-fit: contain; }
     @media (max-width: 900px) {
-      .game-mode .table-center #river-2, .game-mode .table-center #river-0 { width: 38%; }
-      .game-mode .table-center #river-3, .game-mode .table-center #river-1 { width: 25%; }
+      .game-mode .table-center #river-2 .river-tiles,
+      .game-mode .table-center #river-0 .river-tiles { grid-template-columns: repeat(7, 21px); gap: 2px; }
+      .game-mode .table-center #river-3 .river-tiles,
+      .game-mode .table-center #river-1 .river-tiles { grid-template-columns: repeat(4, 21px); gap: 2px; }
       .game-mode #player-area #hand-area { padding-right: 35px; padding-left: 72px; }
     }
     @media (prefers-reduced-motion: reduce) { .game-mode .wait-status-badge { animation: none; } }
@@ -1147,6 +1169,7 @@
         </div>
         <div class="player-section" id="player-area">
           <div class="player-info"><strong class="player-name"></strong><div class="player-details"></div>
+            <div id="action-menu" aria-live="polite" hidden></div>
             <span class="declare-wait-badge" id="declare-wait-badge" data-i18n="board.waitBadge" style="display:none">報聽</span>
           </div>
           <div class="calls-area" id="calls-0"></div>

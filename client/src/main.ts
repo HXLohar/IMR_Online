@@ -183,6 +183,8 @@ function applyMatchSnapshot(snapshot: Record<string, unknown>): void {
     handNo: (snapshot['hand'] as number) ?? 1,
     totalHands: (snapshot['total_hands'] as number) ?? 1,
     myTurnOptions: (snapshot['legal_options'] as string[]) ?? [],
+    concealedQuadTiles: ((snapshot['quad_options'] as Record<string, string[]>)?.['concealed']) ?? [],
+    upgradedQuadTiles: ((snapshot['quad_options'] as Record<string, string[]>)?.['upgraded']) ?? [],
     waitOptions: parseWaitOptions(snapshot['wait_options']),
     drawnTile: (snapshot['drawn_tile'] as string | null) ?? null,
     turnId: (snapshot['turn_id'] as number | null) ?? null,
@@ -413,6 +415,8 @@ function handleMessage(msg: unknown): void {
         ...(authoritativeHand ? { hand: authoritativeHand } : {}),
         drawnTile: m['drawn'] as string | null,
         myTurnOptions: m['options'] as string[],
+        concealedQuadTiles: ((m['quad_options'] as Record<string, string[]> | undefined)?.['concealed']) ?? [],
+        upgradedQuadTiles: ((m['quad_options'] as Record<string, string[]> | undefined)?.['upgraded']) ?? [],
         waitOptions: parseWaitOptions(m['wait_options']),
         claimOptions: [],
         pass_count: (m['pass_count'] as number | undefined) ?? store.pass_count,
@@ -481,6 +485,8 @@ function handleMessage(msg: unknown): void {
       }
       updateStore({
         claimOptions: opts,
+        concealedQuadTiles: [],
+        upgradedQuadTiles: [],
         waitOptions: [],
         claimTile: m['tile'] as string,
         claimFromSeat: m['from_seat'] as number,

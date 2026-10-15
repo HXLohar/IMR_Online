@@ -55,6 +55,8 @@ export interface GameStore {
 
   // Turn options
   myTurnOptions: string[]
+  concealedQuadTiles: string[]
+  upgradedQuadTiles: string[]
   waitOptions: WaitOption[]
   drawnTile: string | null
   turnId: number | null
@@ -96,6 +98,8 @@ export const store: GameStore = {
   handNo: 1,
   totalHands: 1,
   myTurnOptions: [],
+  concealedQuadTiles: [],
+  upgradedQuadTiles: [],
   waitOptions: [],
   drawnTile: null,
   turnId: null,

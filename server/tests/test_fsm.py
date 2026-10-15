@@ -377,6 +377,15 @@ def test_declare_wait_option_when_discard_leaves_tenpai():
     assert 'declare_wait' in game._compute_turn_options(p, T('9d'))
 
 
+def test_turn_options_include_each_concealed_quad_choice():
+    p = PlayerState(seat=0, name='Human')
+    p.hand = tiles('1111b3333b123456c')
+    game = GameState([p])
+
+    assert game._compute_turn_quad_options(p, p.hand[-1])['concealed'] == ['1b', '3b']
+    assert 'concealed_quad_declare' in game._compute_turn_options(p, p.hand[-1])
+
+
 def test_wait_options_count_visible_outs_after_discard():
     p = PlayerState(seat=0, name='Human')
     p.hand = tiles('123b456b789b12c11d9d')

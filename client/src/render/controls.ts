@@ -3,7 +3,7 @@ import { send } from '../net/ws'
 import { sortTiles } from '../tiles'
 import { makeTile } from './board'
 import type { ClaimType } from '../protocol/messages'
-import { t, type TranslationKey } from '../i18n'
+import { t } from '../i18n'
 
 function el(id: string): HTMLElement {
   return document.getElementById(id) as HTMLElement
@@ -12,19 +12,15 @@ function el(id: string): HTMLElement {
 let _selectedTile: string | null = null
 let _selectionExplicit = false
 let _handEventsBound = false
-let _autoSkipTimer: number | null = null
 let _waitAutoDiscardTimer: number | null = null
 let _passMode = false
 let _waitMode = false
+let _actionMenuSubmode: { context: string; mode: 'straight' | 'quad' } | null = null
 
 export function resetTurnToggles(): void {
   _passMode = false
   _waitMode = false
-}
-
-function clearAutoSkipTimer(): void {
-  if (_autoSkipTimer !== null) window.clearTimeout(_autoSkipTimer)
-  _autoSkipTimer = null
+  _actionMenuSubmode = null
 }
 
 function clearWaitAutoDiscardTimer(): void {
@@ -40,10 +36,6 @@ function canAddStraightTripletCall(): boolean {
   return store.pass_count === 0
     ? store.straightTripletCount < 4
     : store.pass_count + store.straightTripletCount < 3
-}
-
-function tileCount(tile: string): number {
-  return store.hand.filter(t => t === tile).length
 }
 
 function discard(tile: string, faceDown = false): void {
@@ -97,11 +89,163 @@ function getStraightCallOptions(hand: string[], claimTile: string): string[][] {
   return options
 }
 
+function renderActionMenu(): void {
+  const menu = el('action-menu')
+  menu.replaceChildren()
+
+  if (store.claimOptions.length > 0) {
+    const context = `claim:${store.claimWindowId ?? ''}`
+    if (_actionMenuSubmode?.context !== context) _actionMenuSubmode = null
+    menu.hidden = false
+    const available = {
+      straight_call: Boolean(store.claimTile && store.claimOptions.includes('straight_call')
+        && canAddStraightTripletCall() && getStraightCallOptions(store.hand, store.claimTile).length),
+      triplet_call: store.claimOptions.includes('triplet_call') && canAddStraightTripletCall(),
+      direct_quad_call: store.claimOptions.includes('direct_quad_call'),
+      win: store.claimOptions.includes('win'),
+    }
+
+    if (_actionMenuSubmode?.mode === 'straight') {
+      const options = store.claimTile ? getStraightCallOptions(store.hand, store.claimTile) : []
+      options.forEach((tiles, index) => {
+        const handTiles = tiles.filter(tile => tile !== store.claimTile)
+        const btn = makeActionChoiceButton(t('controls.optionNumber', { action: t('controls.eat'), number: index + 1 }), tiles, () => {
+          sendClaim('straight_call', handTiles)
+        })
+        menu.appendChild(btn)
+      })
+      const canReturn = available.triplet_call || available.direct_quad_call || available.win
+      menu.appendChild(makeActionMenuButton(t('controls.cancel'), store.claimOptions.includes('skip'), () => {
+        if (canReturn) {
+          _actionMenuSubmode = null
+          renderControls()
+        } else {
+          sendClaim('skip')
+        }
+      }, 'menu-cancel'))
+      return
+    }
+
+    const actions: Array<{ key: 'straight_call' | 'triplet_call' | 'direct_quad_call' | 'win'; label: string; active: boolean }> = [
+      { key: 'straight_call', label: t('controls.eat'), active: available.straight_call },
+      { key: 'triplet_call', label: t('controls.pong'), active: available.triplet_call },
+      { key: 'direct_quad_call', label: t('controls.exposedKong'), active: available.direct_quad_call },
+      { key: 'win', label: t('controls.win'), active: available.win },
+    ]
+    for (const action of actions) {
+      menu.appendChild(makeActionMenuButton(action.label, action.active, () => {
+        if (action.key === 'straight_call') {
+          const options = store.claimTile ? getStraightCallOptions(store.hand, store.claimTile) : []
+          if (options.length === 1) sendClaim('straight_call', options[0].filter(tile => tile !== store.claimTile))
+          else if (options.length > 1) {
+            _actionMenuSubmode = { context, mode: 'straight' }
+            renderControls()
+          }
+        } else {
+          sendClaim(action.key)
+        }
+      }))
+    }
+    menu.appendChild(makeActionMenuButton(t('controls.cancel'), store.claimOptions.includes('skip'), () => sendClaim('skip'), 'menu-cancel'))
+    return
+  }
+
+  if (store.myTurnOptions.length > 0 && store.currentSeat === store.mySeat) {
+    const context = `turn:${store.turnId ?? ''}`
+    if (_actionMenuSubmode?.context !== context) _actionMenuSubmode = null
+    const quads = [
+      ...(store.myTurnOptions.includes('concealed_quad_declare')
+        ? store.concealedQuadTiles.map(tile => ({ action: 'concealed_quad_declare' as const, tile, label: t('controls.concealedKong') })) : []),
+      ...(store.myTurnOptions.includes('upgraded_quad_declare')
+        ? store.upgradedQuadTiles.map(tile => ({ action: 'upgraded_quad_declare' as const, tile, label: t('controls.addedKong') })) : []),
+    ]
+    if (quads.length) {
+      menu.hidden = false
+      if (_actionMenuSubmode?.mode === 'quad') {
+        quads.forEach((choice, index) => {
+          menu.appendChild(makeActionChoiceButton(t('controls.optionNumber', { action: choice.label, number: index + 1 }), Array(4).fill(choice.tile), () => sendQuad(choice.action, choice.tile)))
+        })
+        menu.appendChild(makeActionMenuButton(t('controls.cancel'), false, () => {}, 'menu-cancel'))
+      } else {
+        const kongLabel = quads.every(choice => choice.action === 'concealed_quad_declare')
+          ? t('controls.concealedKong')
+          : quads.every(choice => choice.action === 'upgraded_quad_declare')
+            ? t('controls.addedKong')
+            : t('controls.actionKong')
+        const labels = [t('controls.eat'), t('controls.pong'), kongLabel, t('controls.win'), t('controls.cancel')]
+        labels.forEach((label, index) => {
+          const isQuad = index === 2
+          menu.appendChild(makeActionMenuButton(label, isQuad, () => {
+            if (!isQuad) return
+            if (quads.length === 1) sendQuad(quads[0].action, quads[0].tile)
+            else {
+              _actionMenuSubmode = { context, mode: 'quad' }
+              renderControls()
+            }
+          }, index === 4 ? 'menu-cancel' : ''))
+        })
+      }
+      return
+    }
+
+    if (store.myTurnOptions.includes('tsumo')) {
+      menu.hidden = false
+      const labels = [t('controls.eat'), t('controls.pong'), t('controls.actionKong'), t('controls.win'), t('controls.cancel')]
+      labels.forEach((label, index) => {
+        const isWin = index === 3
+        menu.appendChild(makeActionMenuButton(label, isWin, () => {
+          if (!isWin) return
+          send({ type: 'self_action', action: 'tsumo', turn_id: store.turnId ?? undefined })
+          store.myTurnOptions = []
+          renderControls()
+        }, index === 4 ? 'menu-cancel' : ''))
+      })
+      return
+    }
+  }
+
+  _actionMenuSubmode = null
+  menu.hidden = true
+}
+
+function makeActionMenuButton(label: string, active: boolean, onClick: () => void, extraClass = ''): HTMLButtonElement {
+  const btn = makeBtn(label, onClick, 'action-menu-button')
+  if (extraClass) btn.classList.add(extraClass)
+  btn.disabled = !active
+  btn.classList.toggle('highlight', active)
+  return btn
+}
+
+function makeActionChoiceButton(label: string, tiles: string[], onClick: () => void): HTMLButtonElement {
+  const btn = makeActionMenuButton(label, true, onClick, 'tile-choice')
+  const row = document.createElement('span')
+  row.className = 'choice-tiles'
+  for (const tile of tiles) row.appendChild(makeTile(tile, ['small-tile']))
+  btn.appendChild(row)
+  return btn
+}
+
+function sendClaim(action: ClaimType, tiles?: string[]): void {
+  send({ type: 'claim', claim: action, tiles, window_id: store.claimWindowId ?? undefined })
+  clearClaim(action !== 'skip')
+  renderControls()
+}
+
+function sendQuad(action: 'concealed_quad_declare' | 'upgraded_quad_declare', tile: string): void {
+  send({ type: 'self_action', action, tile, turn_id: store.turnId ?? undefined })
+  clearSelection()
+  store.myTurnOptions = []
+  store.concealedQuadTiles = []
+  store.upgradedQuadTiles = []
+  _actionMenuSubmode = null
+  renderControls()
+}
+
 export function renderControls(): void {
+  renderActionMenu()
   const ctrl = el('controls')
   ctrl.innerHTML = ''
   ctrl.classList.toggle('has-claim-options', store.claimOptions.length > 0)
-  clearAutoSkipTimer()
   clearWaitAutoDiscardTimer()
   const footer = makeShortcutFooter()
   footer.classList.add('control-footer')
@@ -121,72 +265,6 @@ export function renderControls(): void {
       ctrl.appendChild(info)
     }
 
-    let disabledClaims = 0
-
-    for (const opt of store.claimOptions) {
-      if (opt === 'straight_call' && store.claimTile) {
-        // Show one button per valid straight-call combination
-        for (const tiles of getStraightCallOptions(store.hand, store.claimTile)) {
-          const btn = makeBtn(`${t('controls.eat')} ${tiles.join('')}`, () => {
-            send({ type: 'claim', claim: 'straight_call', tiles: tiles.filter(t => t !== store.claimTile), window_id: store.claimWindowId ?? undefined })
-            clearClaim(true)
-            renderControls()
-          }, 'claim-option')
-          fillClaimTileBtn(btn, t('controls.eat'), tiles.filter(t => t !== store.claimTile), store.claimTile)
-          if (!canAddStraightTripletCall()) {
-            btn.disabled = true
-            disabledClaims++
-          }
-          btn.classList.add('highlight')
-          ctrl.appendChild(btn)
-        }
-      } else {
-        const btn = makeBtn(claimLabel(opt), () => {
-          send({ type: 'claim', claim: opt as ClaimType, window_id: store.claimWindowId ?? undefined })
-          clearClaim(opt !== 'skip')
-          renderControls()
-        }, 'claim-option')
-        if ((opt === 'triplet_call' || opt === 'direct_quad_call') && store.claimTile) {
-          fillClaimTileBtn(btn, claimLabel(opt), Array(opt === 'triplet_call' ? 2 : 3).fill(store.claimTile), store.claimTile)
-        }
-        if (opt === 'triplet_call' && !canAddStraightTripletCall()) {
-          btn.disabled = true
-          disabledClaims++
-        }
-        if (opt !== 'skip') btn.classList.add('highlight')
-        ctrl.appendChild(btn)
-      }
-    }
-    if (!canAddStraightTripletCall() && store.claimTile) {
-      if (!store.claimOptions.includes('triplet_call') && tileCount(store.claimTile) >= 2) {
-        const btn = makeBtn(claimLabel('triplet_call'), () => {}, 'claim-option')
-        fillClaimTileBtn(btn, claimLabel('triplet_call'), Array(2).fill(store.claimTile), store.claimTile)
-        btn.disabled = true
-        disabledClaims++
-        ctrl.appendChild(btn)
-      }
-
-      const canStraightCallSeat = store.claimFromSeat !== null && store.mySeat === (store.claimFromSeat + 1) % 4
-      if (canStraightCallSeat && !store.claimOptions.includes('straight_call')) {
-        for (const tiles of getStraightCallOptions(store.hand, store.claimTile)) {
-          const btn = makeBtn(t('controls.eat'), () => {}, 'claim-option')
-          fillClaimTileBtn(btn, t('controls.eat'), tiles.filter(t => t !== store.claimTile), store.claimTile)
-          btn.disabled = true
-          disabledClaims++
-          ctrl.appendChild(btn)
-        }
-      }
-    }
-    const hasEnabledClaim = store.claimOptions.some(opt =>
-      opt !== 'skip' && (canAddStraightTripletCall() || (opt !== 'straight_call' && opt !== 'triplet_call')),
-    )
-    if (disabledClaims > 0 && !hasEnabledClaim) {
-      _autoSkipTimer = window.setTimeout(() => {
-        send({ type: 'claim', claim: 'skip', window_id: store.claimWindowId ?? undefined })
-        clearClaim()
-        renderControls()
-      }, 2000)
-    }
     ctrl.appendChild(footer)
     return
   }
@@ -208,31 +286,6 @@ export function renderControls(): void {
       passBtn.classList.add('pass-toggle')
       passBtn.disabled = !canAddPass()
       ctrl.appendChild(passBtn)
-    }
-
-    if (store.myTurnOptions.includes('tsumo')) {
-      ctrl.appendChild(makeBtn(t('controls.tsumo'), () => {
-        send({ type: 'self_action', action: 'tsumo', turn_id: store.turnId ?? undefined })
-        store.myTurnOptions = []
-      }, 'control-action'))
-    }
-
-    if (store.myTurnOptions.includes('concealed_quad_declare')) {
-      ctrl.appendChild(makeBtn(t('controls.concealedKong'), () => {
-        if (!_selectedTile) { alert(t('controls.selectKong')); return }
-        send({ type: 'self_action', action: 'concealed_quad_declare', tile: _selectedTile, turn_id: store.turnId ?? undefined })
-        clearSelection()
-        store.myTurnOptions = []
-      }, 'control-action'))
-    }
-
-    if (store.myTurnOptions.includes('upgraded_quad_declare')) {
-      ctrl.appendChild(makeBtn(t('controls.addedKong'), () => {
-        if (!_selectedTile) { alert(t('controls.selectAddedKong')); return }
-        send({ type: 'self_action', action: 'upgraded_quad_declare', tile: _selectedTile, turn_id: store.turnId ?? undefined })
-        clearSelection()
-        store.myTurnOptions = []
-      }, 'control-action'))
     }
 
     if (store.myTurnOptions.includes('redraw')) {
@@ -280,6 +333,7 @@ function clearClaim(keepTile = false): void {
   store.claimOptions = []
   store.claimFromSeat = null
   if (!keepTile) store.claimTile = null
+  _actionMenuSubmode = null
 }
 
 function makeBtn(label: string, onClick: () => void, ...classes: string[]): HTMLButtonElement {
@@ -297,25 +351,6 @@ function makeToggleBtn(label: string, pressed: boolean, onToggle: (active: boole
   return btn
 }
 
-function fillClaimTileBtn(btn: HTMLButtonElement, label: string, handTiles: string[], claimTile: string): void {
-  btn.textContent = ''
-  btn.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 10px'
-
-  const title = document.createElement('span')
-  title.textContent = label
-
-  const row = document.createElement('span')
-  row.style.cssText = 'display:flex;align-items:center;gap:3px'
-  for (const t of handTiles) row.appendChild(makeTile(t, ['small-tile']))
-
-  const plus = document.createElement('span')
-  plus.textContent = '+'
-  row.appendChild(plus)
-  row.appendChild(makeTile(claimTile, ['small-tile']))
-
-  btn.append(title, row)
-}
-
 function makeShortcutFooter(): HTMLElement {
   const wrap = document.createElement('label')
   wrap.title = t('controls.shortcut.title')
@@ -331,14 +366,6 @@ function makeShortcutFooter(): HTMLElement {
 
   wrap.append(input, text)
   return wrap
-}
-
-function claimLabel(opt: string): string {
-  const map: Record<string, TranslationKey> = {
-    win: 'controls.win', triplet_call: 'controls.pong', direct_quad_call: 'controls.exposedKong',
-    straight_call: 'controls.eat', skip: 'controls.skip',
-  }
-  return map[opt] ? t(map[opt]) : opt
 }
 
 function makeHandClickable(): void {

@@ -370,12 +370,14 @@ class GameState:
 
         # Compute options for this player
         options = self._compute_turn_options(p, tile)
+        quad_options = self._compute_turn_quad_options(p, tile)
 
         await self.send(seat, {
             'type': 'your_turn',
             'drawn': tile_to_str(tile),
             'your_hand': [tile_to_str(t) for t in p.hand],
             'options': options,
+            'quad_options': quad_options,
             'wait_options': self._wait_options(p),
             'redraw_eligible': 'redraw' in options,
             'pass_count': p.pass_count,
@@ -404,13 +406,12 @@ class GameState:
             options.append('tsumo')
 
         # Concealed quad declare
-        concealed_quads = can_concealed_quad_declare(p.hand[:-1], drawn_tile)
-        if concealed_quads and (not p.has_declared_wait or any(self._self_quad_keeps_wait(p, t, False) for t in concealed_quads)):
+        quad_options = self._compute_turn_quad_options(p, drawn_tile)
+        if quad_options['concealed']:
             options.append(CONCEALED_QUAD_DECLARE)
 
         # Upgraded quad declare
-        upgraded_quads = can_upgraded_quad_declare(p.hand[:-1], p.calls, drawn_tile)
-        if upgraded_quads and (not p.has_declared_wait or any(self._self_quad_keeps_wait(p, t, True) for t in upgraded_quads)):
+        if quad_options['upgraded']:
             options.append(UPGRADED_QUAD_DECLARE)
 
         # Redraw
@@ -428,6 +429,17 @@ class GameState:
                 options.append(DECLARE_WAIT)
 
         return options
+
+    def _compute_turn_quad_options(self, p: PlayerState, drawn_tile: Tile) -> dict[str, list[str]]:
+        concealed = can_concealed_quad_declare(p.hand[:-1], drawn_tile)
+        upgraded = can_upgraded_quad_declare(p.hand[:-1], p.calls, drawn_tile)
+        if p.has_declared_wait:
+            concealed = [tile for tile in concealed if self._self_quad_keeps_wait(p, tile, False)]
+            upgraded = [tile for tile in upgraded if self._self_quad_keeps_wait(p, tile, True)]
+        return {
+            'concealed': [tile_to_str(tile) for tile in concealed],
+            'upgraded': [tile_to_str(tile) for tile in upgraded],
+        }
 
     async def _process_turn_action(self, seat: int, action: dict) -> None:
         p = self.players[seat]
@@ -1181,8 +1193,10 @@ class GameState:
         """Complete reconnect view without revealing opponents' concealed hands."""
         view = self._build_view(seat)
         p = self.players[seat]
+        quad_options = {'concealed': [], 'upgraded': []}
         if self.state == FSMState.PLAYER_TURN and seat == self.current_seat and p.hand:
             legal_options = self._compute_turn_options(p, p.hand[-1])
+            quad_options = self._compute_turn_quad_options(p, p.hand[-1])
         elif self.state == FSMState.AWAIT_CLAIMS and seat in self._claim_options and seat not in self._claims:
             legal_options = self._claim_options[seat]
         else:
@@ -1222,6 +1236,7 @@ class GameState:
             'straight_triplet_count': p.straight_triplet_count,
             'has_declared_wait': p.has_declared_wait,
             'legal_options': legal_options,
+            'quad_options': quad_options,
             'drawn_tile': tile_to_str(p.hand[-1]) if self.state == FSMState.PLAYER_TURN and seat == self.current_seat and p.hand else None,
             'claim_tile': tile_to_str(self._pending_discard) if self._pending_discard else None,
             'claim_from_seat': self._pending_from_seat if self.state == FSMState.AWAIT_CLAIMS else None,
