@@ -153,6 +153,9 @@ class FakeWall:
     def remaining(self):
         return len(self.draw_tiles)
 
+    def snapshot(self):
+        return {'remaining': self.remaining()}
+
 
 def test_bot_discard_waits_half_a_second(monkeypatch):
     class DiscardBot:
@@ -267,6 +270,48 @@ def test_no_claim_window_when_only_skip_is_legal():
 
     assert not any(e[0] == 'send' and e[2].get('type') == 'claim_window' for e in events)
     assert game.current_seat == 2
+
+
+def test_claim_timeout_auto_uses_one_card_then_waits_and_turn_timeout_uses_next():
+    events = []
+
+    async def send(seat, msg):
+        events.append((seat, msg['type']))
+
+    async def broadcast(msg):
+        events.append(('all', msg['type']))
+
+    players = [PlayerState(seat=i, name=f'P{i}') for i in range(4)]
+    for player in players:
+        player.hand = tiles('234b456b789d45cES')
+    players[2].hand = tiles('23c456b789d45cES')
+    players[3].hand = tiles('11c234b456b789dES')
+    game = GameState(players, send, broadcast)
+    game.wall = FakeWall([T('9b')])
+
+    async def scenario():
+        await game._begin_await_claims(from_seat=1, tile=T('1c'))
+        assert game.state == FSMState.AWAIT_CLAIMS
+        assert (2, 'claim_window') in events
+        assert ('all', 'tile_drawn') not in events
+        assert 'straight_call' in game.snapshot(2)['legal_options']
+        original_deadline = game.window_deadline_at
+        await game.timeout('claim', game.window_id)
+        assert game.state == FSMState.AWAIT_CLAIMS
+        assert game.window_deadline_at >= original_deadline + 10
+        assert game.time_cards_remaining[2] == 1
+        assert events.count(('all', 'time_extended')) == 1
+        await game.timeout('claim', game.window_id)
+        assert events.index(('all', 'claim_resolved')) < events.index(('all', 'tile_drawn'))
+        assert game.current_seat == 2
+        assert game.state == FSMState.PLAYER_TURN
+        turn_deadline = game.turn_deadline_at
+        await game.timeout('turn', game.turn_id)
+        assert game.time_cards_remaining[2] == 0
+        assert game.turn_deadline_at >= turn_deadline + 10
+        assert events.count(('all', 'time_extended')) == 2
+
+    asyncio.run(scenario())
 
 
 def test_non_downstream_straight_call_claim_is_sanitized_to_skip():

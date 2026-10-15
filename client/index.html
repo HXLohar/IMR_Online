@@ -872,6 +872,68 @@
     .game-mode #controls .control-footer {
       grid-column: 1 / -1; width: 100%; margin-top: 4px;
     }
+    .game-mode .player-info {
+      position: relative; width: 100%; min-width: 0; padding: 6px 76px 7px 9px;
+      background: rgba(5, 24, 25, .78); border: 1px solid rgba(148, 194, 170, .35);
+      border-radius: 7px; line-height: 1.25;
+    }
+    .game-mode .player-name { display: block; color: #fff4d3; font-size: 13px; overflow-wrap: anywhere; }
+    .game-mode .player-details { margin-top: 4px; color: #c9dccf; font-size: 11px; overflow-wrap: anywhere; }
+    .game-mode .opponent-side .player-info { padding-right: 8px; }
+    .game-mode .opponent-side.has-declared-wait .player-info { padding-right: 76px; }
+    .game-mode .wait-status-badge { top: 5px; right: 5px; }
+    .game-mode #player-area .player-info { grid-column: 1 / -1; grid-row: 1; }
+
+    .game-mode .table-center { position: relative; width: 100%; height: 100%; min-height: 250px; }
+    .game-mode .table-center .river-area {
+      position: absolute; display: flex; align-items: center; justify-content: center;
+      min-height: 0; max-height: none; margin: 0; overflow: visible;
+      background: rgba(35, 105, 73, .78); border: 1px solid rgba(125, 207, 145, .38);
+      border-radius: 8px; box-shadow: inset 0 1px rgba(255,255,255,.08), 0 5px 14px rgba(3,18,11,.26);
+    }
+    .game-mode .table-center #river-2,
+    .game-mode .table-center #river-0 { left: 50%; width: min(48%, 210px); height: 72px; transform: translateX(-50%); }
+    .game-mode .table-center #river-2 { top: 0; }
+    .game-mode .table-center #river-0 { bottom: 0; }
+    .game-mode .table-center #river-3,
+    .game-mode .table-center #river-1 { top: 50%; width: min(27%, 128px); height: 170px; transform: translateY(-50%); }
+    .game-mode .table-center #river-3 { left: 0; }
+    .game-mode .table-center #river-1 { right: 0; }
+    .game-mode .table-center #river-2 .river-tiles { transform: rotate(180deg); }
+    .game-mode .table-center #river-3 .river-tiles { transform: rotate(90deg); }
+    .game-mode .table-center #river-1 .river-tiles { transform: rotate(-90deg); }
+    .game-mode .table-center .table-status {
+      position: absolute; top: 50%; left: 50%; width: min(38%, 160px); min-height: 0;
+      padding: 4px; transform: translate(-50%, -50%);
+    }
+    .game-mode .table-center .current-turn { font-size: 12px; }
+    .game-mode .table-center .turn-orbit { width: 34px; height: 34px; }
+
+    .game-mode #player-area {
+      grid-template-columns: minmax(0, 1fr) fit-content(360px);
+      grid-template-rows: auto minmax(105px, auto) minmax(58px, auto);
+    }
+    .game-mode #player-area > #hand-zone {
+      position: relative; grid-column: 1; grid-row: 2; min-width: 0; min-height: 105px;
+      background: rgba(15, 48, 54, .32); border: 1px solid rgba(91, 152, 157, .18); border-radius: 8px;
+    }
+    .game-mode #player-area #hand-area { min-height: 103px; padding: 18px 82px 28px; }
+    .game-mode #player-area > .calls-area { grid-column: 2; grid-row: 2; }
+    .game-mode #player-area > #controls { grid-row: 3; }
+    .game-mode .hand-deadline {
+      position: absolute; top: 4px; right: 9px; z-index: 2; color: #ffe36f;
+      font-size: 25px; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums;
+    }
+    .game-mode #time-cards {
+      position: absolute; bottom: 3px; left: 5px; z-index: 2; display: flex; align-items: center;
+      gap: 1px; min-height: 40px;
+    }
+    .game-mode #time-cards img { width: 37px; height: 40px; object-fit: contain; }
+    @media (max-width: 900px) {
+      .game-mode .table-center #river-2, .game-mode .table-center #river-0 { width: 38%; }
+      .game-mode .table-center #river-3, .game-mode .table-center #river-1 { width: 25%; }
+      .game-mode #player-area #hand-area { padding-right: 35px; padding-left: 72px; }
+    }
     @media (prefers-reduced-motion: reduce) { .game-mode .wait-status-badge { animation: none; } }
     #fairness-footer { width: 100%; max-width: 1200px; padding: 24px 18px; color: #d9e4db; background: #0b1915; }
     #fairness-footer code, #fairness-footer pre { display: block; white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; }
@@ -1056,42 +1118,43 @@
       <div class="table-surface">
         <!-- Four-way table; labels and seats are filled from the authoritative snapshot. -->
         <div id="opp-top" class="player-section opponent-row opponent-top">
-          <div class="section-label" data-i18n="seat.opposite">對家</div>
-          <span class="wait-status-badge" data-i18n="board.waitBadge" hidden>報聽</span>
+          <div class="player-info"><strong class="player-name"></strong><div class="player-details"></div><span class="wait-status-badge" data-i18n="board.waitBadge" hidden>報聽</span></div>
           <div class="opponent-hand" id="hand-2" data-i18n-aria-label="board.tile.opponentHand" aria-label="對手手牌"></div>
-          <div class="river-area" id="river-2"></div>
           <div class="calls-area" id="calls-2"></div>
         </div>
         <div class="center-area">
           <div id="opp-left" class="player-section opponent-side opponent-left">
-            <div class="section-label" data-i18n="seat.previous">上家</div>
-            <span class="wait-status-badge" data-i18n="board.waitBadge" hidden>報聽</span>
+            <div class="player-info"><strong class="player-name"></strong><div class="player-details"></div><span class="wait-status-badge" data-i18n="board.waitBadge" hidden>報聽</span></div>
             <div class="opponent-hand" id="hand-3" data-i18n-aria-label="board.tile.opponentHand" aria-label="對手手牌"></div>
-            <div class="river-area" id="river-3"></div>
             <div class="calls-area" id="calls-3"></div>
           </div>
-          <div class="table-status">
-            <div class="turn-orbit" aria-hidden="true"><span></span></div>
-            <div id="current-seat-label" class="current-turn" aria-live="polite"></div>
-            <div id="deadline-label" class="deadline" aria-live="polite"></div>
-            <div id="latest-discard" class="latest-discard" data-i18n-aria-label="board.tile.latestDiscard" aria-label="最新棄牌"></div>
+          <div class="table-center">
+            <div class="river-area" id="river-2"></div>
+            <div class="river-area" id="river-3"></div>
+            <div class="table-status">
+              <div class="turn-orbit" aria-hidden="true"><span></span></div>
+              <div id="current-seat-label" class="current-turn" aria-live="polite"></div>
+              <div id="latest-discard" class="latest-discard" data-i18n-aria-label="board.tile.latestDiscard" aria-label="最新棄牌"></div>
+            </div>
+            <div class="river-area" id="river-1"></div>
+            <div class="river-area" id="river-0"></div>
           </div>
           <div id="opp-right" class="player-section opponent-side opponent-right">
-            <div class="section-label" data-i18n="seat.next">下家</div>
-            <span class="wait-status-badge" data-i18n="board.waitBadge" hidden>報聽</span>
+            <div class="player-info"><strong class="player-name"></strong><div class="player-details"></div><span class="wait-status-badge" data-i18n="board.waitBadge" hidden>報聽</span></div>
             <div class="opponent-hand" id="hand-1" data-i18n-aria-label="board.tile.opponentHand" aria-label="對手手牌"></div>
-            <div class="river-area" id="river-1"></div>
             <div class="calls-area" id="calls-1"></div>
           </div>
         </div>
         <div class="player-section" id="player-area">
-          <div class="section-label">
-            <span id="player-relation" data-i18n="seat.self">自家</span>
+          <div class="player-info"><strong class="player-name"></strong><div class="player-details"></div>
             <span class="declare-wait-badge" id="declare-wait-badge" data-i18n="board.waitBadge" style="display:none">報聽</span>
           </div>
           <div class="calls-area" id="calls-0"></div>
-          <div class="river-area" id="river-0"></div>
-          <div id="hand-area"></div>
+          <div id="hand-zone">
+            <span id="hand-deadline" class="hand-deadline" aria-live="off"></span>
+            <div id="hand-area"></div>
+            <div id="time-cards" class="time-cards" aria-label="剩餘加時卡"></div>
+          </div>
           <div id="controls"></div>
         </div>
       </div>

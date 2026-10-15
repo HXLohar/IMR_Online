@@ -157,6 +157,8 @@ class GameState:
         self.window_id = 0
         self.window_deadline_at: float | None = None
         self._timeout_task: asyncio.Task | None = None
+        self.time_cards_remaining = [2] * self.num_players
+        self._extension_used: set[int] = set()
         self._turn_flags = WinFlags()
         self._opening_wait: dict[int, bool] = {}
         self._draw_count = 0
@@ -171,8 +173,9 @@ class GameState:
         self.turn_deadline_at = None
         self.window_deadline_at = None
 
-    def _open_turn_clock(self, seconds: float = 60.0) -> None:
+    def _open_turn_clock(self, seconds: float = 10.0) -> None:
         self._cancel_timeout()
+        self._extension_used.clear()
         self.turn_id += 1
         self.turn_deadline_at = time.time() + seconds
         if self.timeout_fn:
@@ -180,6 +183,7 @@ class GameState:
 
     def _open_claim_clock(self, seconds: float) -> None:
         self._cancel_timeout()
+        self._extension_used.clear()
         self.window_id += 1
         self.window_deadline_at = time.time() + seconds
         if self.timeout_fn:
@@ -196,12 +200,25 @@ class GameState:
     async def timeout(self, kind: str, serial: int) -> None:
         """Apply a timeout only if its serial still names the live phase."""
         if kind == 'turn' and self.state == FSMState.PLAYER_TURN and serial == self.turn_id:
+            seat = self.current_seat
+            if await self._auto_extend_after_timeout(kind, serial, seat):
+                return
             p = self.players[self.current_seat]
             self._cancel_timeout()
             await self.broadcast({'type': 'turn_timeout', 'seat': self.current_seat, 'turn_id': serial})
             if p.hand:
                 await self._do_discard(self.current_seat, p.hand[-1], False)
         elif kind == 'claim' and self.state == FSMState.AWAIT_CLAIMS and serial == self.window_id:
+            pending_seat = None
+            for offset in range(1, self.num_players):
+                candidate = (self._pending_from_seat + offset) % self.num_players
+                options = self._claim_options.get(candidate, [])
+                if (candidate not in self._claims and any(option != 'skip' for option in options)
+                        and self.time_cards_remaining[candidate] > 0):
+                    pending_seat = candidate
+                    break
+            if pending_seat is not None and await self._auto_extend_after_timeout(kind, serial, pending_seat):
+                return
             self._cancel_timeout()
             await self.broadcast({'type': 'claim_timeout', 'window_id': serial})
             for seat in range(self.num_players):
@@ -209,6 +226,45 @@ class GameState:
                     self._claims[seat] = {'claim': 'skip'}
                     self._claims_received += 1
             await self._resolve_claims_phase()
+
+    async def _auto_extend_after_timeout(self, phase: str, serial: int, seat: int) -> bool:
+        """Automatically spend one card on the first timeout of a decision."""
+        if self._extension_used or self.time_cards_remaining[seat] <= 0:
+            return False
+        if phase == 'turn':
+            if self.state != FSMState.PLAYER_TURN or serial != self.turn_id or seat != self.current_seat:
+                return False
+            deadline = self.turn_deadline_at
+        elif phase == 'claim':
+            if (self.state != FSMState.AWAIT_CLAIMS or serial != self.window_id
+                    or seat not in self._claim_options or seat in self._claims
+                    or not any(option != 'skip' for option in self._claim_options[seat])):
+                return False
+            deadline = self.window_deadline_at
+        else:
+            return False
+        if deadline is None:
+            return False
+
+        self.time_cards_remaining[seat] -= 1
+        self._extension_used.add(seat)
+        self._cancel_timeout()
+        new_deadline = max(deadline, time.time()) + 10
+        if phase == 'claim':
+            self.window_deadline_at = new_deadline
+        else:
+            self.turn_deadline_at = new_deadline
+        if self.timeout_fn:
+            self._timeout_task = asyncio.create_task(
+                self._timeout_after(phase, serial, max(0, new_deadline - time.time())))
+        await self.broadcast({
+            'type': 'time_extended', 'phase': phase, 'seat': seat,
+            'serial': serial, 'deadline_at_ms': int(new_deadline * 1000),
+        })
+        await self.send(seat, {
+            'type': 'time_cards_updated', 'cards_remaining': self.time_cards_remaining[seat],
+        })
+        return True
 
     # ------------------------------------------------------------------
     # Entry points
@@ -232,7 +288,7 @@ class GameState:
         """Called when a player submits a claim during AWAIT_CLAIMS."""
         if self.state != FSMState.AWAIT_CLAIMS:
             return
-        if seat not in self._claims:
+        if seat != self._pending_from_seat and seat not in self._claims:
             claim_action = self._sanitize_claim(seat, claim_action)
             self._claims[seat] = claim_action
             self._claims_received += 1
@@ -583,6 +639,7 @@ class GameState:
         # waiting, we wait for their claim or the timeout.
 
     async def _resolve_claims_phase(self) -> None:
+        await self.broadcast({'type': 'claim_resolved', 'window_id': self.window_id})
         self._cancel_timeout()
         from_seat = self._pending_from_seat
         tile = self._pending_discard
@@ -805,7 +862,7 @@ class GameState:
         self._claim_options = {}
         self._no_claim_next_seat = None
         self._no_claim_quad_draw_seat = quad_seat
-        self._open_claim_clock(3.0)
+        self._open_claim_clock(5.0)
 
         bot_claims = []
         for s in range(self.num_players):
@@ -821,7 +878,7 @@ class GameState:
                 'tile': tile_to_str(tile),
                 'from_seat': quad_seat,
                 'your_options': options,
-                'deadline_ms': 3000,
+                'deadline_ms': 5000,
                 'window_id': self.window_id,
                 'deadline_at_ms': int(self.window_deadline_at * 1000),
             })
@@ -1126,8 +1183,8 @@ class GameState:
         p = self.players[seat]
         if self.state == FSMState.PLAYER_TURN and seat == self.current_seat and p.hand:
             legal_options = self._compute_turn_options(p, p.hand[-1])
-        elif self.state == FSMState.AWAIT_CLAIMS and seat != self._pending_from_seat:
-            legal_options = self._claim_options.get(seat, ['skip'])
+        elif self.state == FSMState.AWAIT_CLAIMS and seat in self._claim_options and seat not in self._claims:
+            legal_options = self._claim_options[seat]
         else:
             legal_options = []
         players = []
@@ -1172,6 +1229,7 @@ class GameState:
             'turn_deadline_at_ms': view['turn_deadline_at_ms'],
             'window_id': self.window_id,
             'window_deadline_at_ms': view['window_deadline_at_ms'],
+            'time_cards_remaining': self.time_cards_remaining[seat],
             'waits': [tile_to_str(t) for t in p.declared_waits],
             'wait_options': self._wait_options(p) if self.state == FSMState.PLAYER_TURN and seat == self.current_seat else [],
         }

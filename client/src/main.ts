@@ -5,7 +5,7 @@ import { renderControls, initKeyboardShortcuts, resetTurnToggles } from './rende
 import type { ClaimType, MatchLength } from './protocol/messages'
 import { initFairnessFooter, showFairnessProof } from './fairness-footer'
 import {
-  applyTranslations, formatDateTime, formatTime, getLocale, message, onLocaleChange, setLocale, t,
+  applyTranslations, formatDateTime, getLocale, message, onLocaleChange, setLocale, t,
   type TranslationKey,
 } from './i18n'
 
@@ -178,6 +178,7 @@ function applyMatchSnapshot(snapshot: Record<string, unknown>): void {
     straightTripletCount: (snapshot['straight_triplet_count'] as number) ?? 0,
     hasDeclaredWait: (snapshot['has_declared_wait'] as boolean) ?? false,
     wallCount: wall?.remaining ?? 0, currentSeat: snapshot['current_seat'] as number,
+    awaitingClaims: snapshot['state'] === 'AWAIT_CLAIMS',
     dealer: (snapshot['dealer'] as number) ?? 0,
     handNo: (snapshot['hand'] as number) ?? 1,
     totalHands: (snapshot['total_hands'] as number) ?? 1,
@@ -191,6 +192,7 @@ function applyMatchSnapshot(snapshot: Record<string, unknown>): void {
     claimFromSeat: (snapshot['claim_from_seat'] as number | null) ?? null,
     claimWindowId: (snapshot['window_id'] as number | null) ?? null,
     claimDeadlineAt: (snapshot['window_deadline_at_ms'] as number | null) ?? null,
+    timeCardsRemaining: (snapshot['time_cards_remaining'] as number | undefined) ?? 2,
     calledRiverTiles,
     lastDiscard: null,
   })
@@ -293,7 +295,8 @@ function handleMessage(msg: unknown): void {
       showFairnessProof(m['fairness'])
       const players = m['players'] as Array<{ seat: number; user_id: number | null; name: string; is_bot: boolean; connected?: boolean; score?: number }>
       const mine = players.find((player) => player.user_id === activeUser?.id)
-      updateStore({ players: players as typeof store.players, mySeat: mine?.seat ?? 0, phase: 'playing', totalHands: Number(m['length'] ?? 1), waitOptions: [] })
+      const totalHands = Number(m['length'] ?? 1)
+      updateStore({ players: players as typeof store.players, mySeat: mine?.seat ?? 0, phase: 'playing', totalHands, waitOptions: [], awaitingClaims: false, timeCardsRemaining: totalHands === 1 ? 2 : totalHands === 4 ? 3 : 4 })
       showScreen('game')
       setStatus(message(m['mode'] === 'practice' ? 'status.practiceStarted' : 'status.gameStarted', {
         dealer: () => seatLabel(Number(m['dealer'] ?? store.dealer)),
@@ -304,7 +307,7 @@ function handleMessage(msg: unknown): void {
       showFairnessProof(m['fairness'])
       document.getElementById('result-overlay')!.classList.add('hidden')
       activeResult = null
-      updateStore({ handNo: Number(m['hand'] ?? store.handNo + 1), totalHands: Number(m['total_hands'] ?? store.totalHands), dealer: Number(m['dealer'] ?? store.dealer), lastDiscard: null, waitOptions: [] })
+      updateStore({ handNo: Number(m['hand'] ?? store.handNo + 1), totalHands: Number(m['total_hands'] ?? store.totalHands), dealer: Number(m['dealer'] ?? store.dealer), lastDiscard: null, waitOptions: [], awaitingClaims: false })
       addLog(message('log.nextHand', { hand: Number(m['hand']), total: Number(m['total_hands']) }))
       break
     }
@@ -365,6 +368,7 @@ function handleMessage(msg: unknown): void {
           dealer: Number(m['dealer'] ?? store.dealer),
           myTurnOptions: [],
           waitOptions: [],
+          awaitingClaims: false,
           others: buildOthers(),
           calledRiverTiles: {},
           lastDiscard: null,
@@ -383,11 +387,18 @@ function handleMessage(msg: unknown): void {
       updateStore({
         wallCount: m['wall_count'] as number,
         currentSeat: drawSeat,
+        awaitingClaims: false,
         waitOptions: [],
+        claimOptions: [], claimTile: null, claimFromSeat: null,
+        claimWindowId: null, claimDeadlineAt: null,
         ...(drawSeat !== store.mySeat && drawnOther ? {
           others: { ...store.others, [drawSeat]: { ...drawnOther, hand_count: drawnOther.hand_count + 1 } },
         } : {}),
       })
+      setStatus(t('board.currentTurn', {
+        seat: seatLabel(drawSeat),
+        name: store.players.find((player) => player.seat === drawSeat)?.name ?? t('seat.number', { seat: drawSeat }),
+      }))
       addLog(message('log.drewTile', { seat: () => seatLabel(Number(m['seat'])), wall: Number(m['wall_count']) }))
       render()
       break
@@ -398,6 +409,7 @@ function handleMessage(msg: unknown): void {
       const authoritativeHand = Array.isArray(m['your_hand']) ? m['your_hand'] as string[] : null
       updateStore({
         currentSeat: store.mySeat,
+        awaitingClaims: false,
         ...(authoritativeHand ? { hand: authoritativeHand } : {}),
         drawnTile: m['drawn'] as string | null,
         myTurnOptions: m['options'] as string[],
@@ -413,10 +425,8 @@ function handleMessage(msg: unknown): void {
       if (!authoritativeHand && m['drawn']) {
         updateStore({ hand: [...store.hand, m['drawn'] as string] })
       }
-      const deadline = m['deadline_at_ms'] as number | undefined
       setStatus(message('status.yourTurn', {
         drawn: () => m['drawn'] ? String(m['drawn']) : t('game.drawnAfterMeld'),
-        deadline: () => deadline ? t('status.deadline', { time: formatTime(deadline) }) : '',
       }))
       const rawOptions = m['options'] as string[]
       addLog(message('log.yourTurn', { options: () => rawOptions.map(actionLabel).join(t('game.optionsSeparator')) }))
@@ -428,7 +438,8 @@ function handleMessage(msg: unknown): void {
       const seat = m['seat'] as number
       const tile = m['tile'] as string | null
       const faceDown = m['face_down'] as boolean
-      updateStore({ waitOptions: [] })
+      updateStore({ waitOptions: [], awaitingClaims: !faceDown })
+      if (!faceDown) setStatus(message('board.awaitingClaims'))
       if (seat === store.mySeat) {
         const newHand = [...store.hand]
         const idx = tile ? newHand.lastIndexOf(tile) : newHand.length - 1
@@ -484,8 +495,42 @@ function handleMessage(msg: unknown): void {
        setStatus(message('status.claimWindow', {
          tile: String(m['tile']),
          seat: () => seatLabel(Number(m['from_seat'])),
-         time: () => formatTime(Number(m['deadline_at_ms'])),
        }))
+      render()
+      break
+    }
+
+    case 'claim_resolved': {
+      updateStore({ awaitingClaims: false })
+      if (store.claimWindowId === m['window_id']) {
+        updateStore({ claimOptions: [], claimTile: null, claimFromSeat: null,
+          claimWindowId: null, claimDeadlineAt: null })
+      }
+      render()
+      break
+    }
+
+    case 'time_extended': {
+      const phase = m['phase'] as string
+      const serial = m['serial'] as number
+      const mine = m['seat'] === store.mySeat
+      if (phase === 'claim' && store.claimWindowId === serial) {
+        updateStore({ claimDeadlineAt: m['deadline_at_ms'] as number })
+        setStatus(message('status.claimWindow', {
+          tile: store.claimTile ?? '', seat: () => seatLabel(store.claimFromSeat ?? 0),
+        }))
+      } else if (phase === 'turn' && store.turnId === serial && mine) {
+        updateStore({ turnDeadlineAt: m['deadline_at_ms'] as number })
+        setStatus(message('status.yourTurn', {
+          drawn: () => store.drawnTile ?? t('game.drawnAfterMeld'),
+        }))
+      }
+      render()
+      break
+    }
+
+    case 'time_cards_updated': {
+      updateStore({ timeCardsRemaining: Number(m['cards_remaining'] ?? store.timeCardsRemaining) })
       render()
       break
     }
@@ -507,12 +552,12 @@ function handleMessage(msg: unknown): void {
         }
       }
 
-      updateStore({ lastDiscard: null })
+      updateStore({ lastDiscard: null, awaitingClaims: false })
 
       const callStr = makeCallStr(callType, tiles, seat, fromSeat, claimedTile)
       if (seat === store.mySeat) {
         // Remove tiles consumed from hand: all call tiles except the one claimed from river
-        const claimTile = store.claimTile
+        const claimTile = isDiscardClaim(callType) ? claimedTile : null
         const toRemove = [...tiles]
         if (claimTile) {
           const ci = toRemove.indexOf(claimTile)

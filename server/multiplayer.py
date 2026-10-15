@@ -94,6 +94,7 @@ class Match:
             players.append(p)
         self.game = GameState(players, self._send_seat, self._broadcast,
                               hand_complete_fn=self._hand_complete, timeout_fn=self._game_timeout)
+        self.game.time_cards_remaining = [{1: 2, 4: 3, 8: 4}.get(length, 2)] * len(seats)
 
     def user_ids(self) -> list[int]:
         return [s.user_id for s in self.seats if s.user_id is not None]
@@ -144,6 +145,13 @@ class Match:
             if pause:
                 await asyncio.sleep(pause)
             self.hand_no += 1
+            if self.length in (4, 8) and self.hand_no in (3, 5, 7):
+                for seat in range(len(self.seats)):
+                    self.game.time_cards_remaining[seat] += 1
+                    await self.game.send(seat, {
+                        'type': 'time_cards_updated',
+                        'cards_remaining': self.game.time_cards_remaining[seat],
+                    })
             self.game.dealer = (self.game.dealer + 1) % 4
             self._prepare_wall()
             self.game.state = FSMState.WAITING

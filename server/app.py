@@ -250,6 +250,18 @@ if dist_index.exists():
         async def lobby_background_file():
             return FileResponse(lobby_background)
 
+    time_card = dist_index.parent / 'time-card.png'
+    if time_card.exists():
+        @app.get('/time-card.png')
+        async def time_card_file():
+            return FileResponse(time_card)
+
+    battle_mark = dist_index.parent / 'imr-battle-mark.png'
+    if battle_mark.exists():
+        @app.get('/imr-battle-mark.png')
+        async def battle_mark_file():
+            return FileResponse(battle_mark)
+
     @app.get('/')
     async def index():
         return FileResponse(dist_index)

@@ -130,6 +130,7 @@ export function renderControls(): void {
           const btn = makeBtn(`${t('controls.eat')} ${tiles.join('')}`, () => {
             send({ type: 'claim', claim: 'straight_call', tiles: tiles.filter(t => t !== store.claimTile), window_id: store.claimWindowId ?? undefined })
             clearClaim(true)
+            renderControls()
           }, 'claim-option')
           fillClaimTileBtn(btn, t('controls.eat'), tiles.filter(t => t !== store.claimTile), store.claimTile)
           if (!canAddStraightTripletCall()) {
@@ -143,6 +144,7 @@ export function renderControls(): void {
         const btn = makeBtn(claimLabel(opt), () => {
           send({ type: 'claim', claim: opt as ClaimType, window_id: store.claimWindowId ?? undefined })
           clearClaim(opt !== 'skip')
+          renderControls()
         }, 'claim-option')
         if ((opt === 'triplet_call' || opt === 'direct_quad_call') && store.claimTile) {
           fillClaimTileBtn(btn, claimLabel(opt), Array(opt === 'triplet_call' ? 2 : 3).fill(store.claimTile), store.claimTile)

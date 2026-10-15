@@ -48,6 +48,7 @@ export interface GameStore {
 
   wallCount: number
   currentSeat: number
+  awaitingClaims: boolean
   dealer: number
   handNo: number
   totalHands: number
@@ -66,6 +67,7 @@ export interface GameStore {
   claimFromSeat: number | null
   claimWindowId: number | null
   claimDeadlineAt: number | null
+  timeCardsRemaining: number
 
   // Result
   lastResult: unknown | null
@@ -89,6 +91,7 @@ export const store: GameStore = {
   others: {},
   wallCount: 0,
   currentSeat: 0,
+  awaitingClaims: false,
   dealer: 0,
   handNo: 1,
   totalHands: 1,
@@ -103,6 +106,7 @@ export const store: GameStore = {
   claimFromSeat: null,
   claimWindowId: null,
   claimDeadlineAt: null,
+  timeCardsRemaining: 2,
   lastResult: null,
   calledRiverTiles: {},
   lastDiscard: null,

@@ -57,7 +57,9 @@ export function renderBoard(): void {
   const current = playerAt(store.currentSeat)
   const curName = current?.name ?? t('seat.number', { seat: store.currentSeat })
   el('round-label').textContent = t('board.round', { hand: store.handNo, total: store.totalHands, dealer: seatLabel(store.dealer) })
-  el('current-seat-label').textContent = t('board.currentTurn', { seat: seatLabel(store.currentSeat), name: curName })
+  el('current-seat-label').textContent = store.awaitingClaims
+    ? t('board.awaitingClaims')
+    : t('board.currentTurn', { seat: seatLabel(store.currentSeat), name: curName })
   renderDeadline()
 
   const badge = el('declare-wait-badge') as HTMLElement
@@ -78,7 +80,7 @@ export function renderBoard(): void {
     section.classList.toggle('has-declared-wait', declaredWait)
     const waitBadge = section.querySelector('.wait-status-badge') as HTMLElement | null
     if (waitBadge) waitBadge.hidden = !declaredWait
-    section.querySelector('.section-label')!.textContent = playerSummary(seat, seatLabel(seat))
+    renderPlayerInfo(section, seat, seatLabel(seat))
     renderRiver(seat, position.river)
     renderCalls(seat, position.calls)
     renderOpponentHand(seat, position.hand)
@@ -87,7 +89,7 @@ export function renderBoard(): void {
   const playerArea = el('player-area')
   playerArea.dataset.seat = String(store.mySeat)
   playerArea.classList.toggle('is-active-turn', store.mySeat === store.currentSeat)
-  el('player-relation')!.textContent = playerSummary(store.mySeat, t('seat.self'))
+  renderPlayerInfo(playerArea, store.mySeat, t('seat.self'))
   renderWaitInfo()
   renderRiver(store.mySeat, 'river-0')
   renderLatestDiscard()
@@ -182,17 +184,16 @@ function playerAt(seat: number): { name?: string; score?: number; connected?: bo
   return store.others[seat]
 }
 
-function playerSummary(seat: number, relation: string): string {
+function renderPlayerInfo(section: HTMLElement, seat: number, relation: string): void {
   const player = playerAt(seat)
-  if (!player) return `${relation} · ${t('seat.waiting')}`
+  const name = section.querySelector('.player-name') as HTMLElement
+  const details = section.querySelector('.player-details') as HTMLElement
+  name.textContent = player?.name ?? t('seat.waiting')
+  if (!player) { details.textContent = relation; return }
   const connection = player.is_bot || player.connected !== false ? t('board.playerConnected') : t('board.playerOffline')
-  const handCount = seat === store.mySeat ? store.hand.length : player.hand_count ?? 0
   const windKeys: TranslationKey[] = ['wind.east', 'wind.south', 'wind.west', 'wind.north']
   const wind = windKeys[seat] ? t(windKeys[seat]) : t('seat.number', { seat })
-  return t('board.playerSummary', {
-    wind, relation, name: player.name ?? t('seat.number', { seat }), score: player.score ?? 0,
-    count: handCount, connection,
-  })
+  details.textContent = t('board.playerMeta', { wind, relation, score: player.score ?? 0, connection })
 }
 
 function seatLabel(seat: number): string {
@@ -243,9 +244,24 @@ export function setStatus(msg: DisplayMessage): void {
 }
 
 function renderDeadline(): void {
-  const deadline = store.claimDeadlineAt ?? (store.currentSeat === store.mySeat ? store.turnDeadlineAt : null)
+  const claiming = store.claimOptions.length > 0 && store.claimWindowId !== null
+  const turning = store.currentSeat === store.mySeat && store.myTurnOptions.length > 0 && store.turnId !== null
+  const deadline = claiming ? store.claimDeadlineAt : turning ? store.turnDeadlineAt : null
   const remaining = deadline ? Math.max(0, Math.ceil((deadline - Date.now()) / 1000)) : 0
-  el('deadline-label').textContent = remaining ? t('board.countdown', { seconds: remaining }) : ''
+  el('hand-deadline').textContent = deadline ? String(remaining) : ''
+  const cards = el('time-cards')
+  cards.setAttribute('aria-label', t('board.timeCardsAria', { count: store.timeCardsRemaining }))
+  if (cards.dataset.count !== String(store.timeCardsRemaining)) {
+    cards.replaceChildren()
+    for (let i = 0; i < store.timeCardsRemaining; i += 1) {
+      const card = document.createElement('img')
+      card.src = '/time-card.png'
+      card.alt = ''
+      card.draggable = false
+      cards.appendChild(card)
+    }
+    cards.dataset.count = String(store.timeCardsRemaining)
+  }
 }
 
 window.setInterval(() => {
